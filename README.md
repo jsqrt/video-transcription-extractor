@@ -25,13 +25,13 @@ python -m pip install -r requirements.txt
 ## Fast (GPU, lower quality)
 
 ```bash
-python -m app transcribe --input "./video-sample/1.mp4" --backend faster-whisper --profile fast --language uk --verbose
+python -m app transcribe --input "./video-sample/1.mp4" --backend faster-whisper --profile fast --language uk --progress --verbose
 ```
 
 ## Best (GPU, higher quality)
 
 ```bash
-python -m app transcribe --input "./video-sample/1.mp4" --backend faster-whisper --profile best --language uk --verbose
+python -m app transcribe --input "./video-sample/1.mp4" --backend faster-whisper --profile best --language uk --progress --verbose
 ```
 
 ## Directory mode
@@ -45,6 +45,7 @@ python -m app transcribe --input "D:\\Videos" --ext "mp4,mov,mkv" --output-dir "
 - Network isolation is enabled by default (external internet is blocked).
 - Only local model cache is used in offline mode.
 - Output file format: `<video_name>.transcript.txt`.
+- Use `--progress` to show transcription percentage in terminal.
 
 ## Pre-push Checklist
 

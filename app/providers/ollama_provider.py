@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 import httpx
 
@@ -38,8 +39,10 @@ class OllamaProvider:
         profile: str,
         language: str | None,
         timeout_sec: int,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> str:
         del profile
+        del progress_callback
         system_prompt = (
             "You are an audio transcription assistant. "
             "Return ONLY plain text transcript with one utterance per line. "

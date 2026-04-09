@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+import wave
 from pathlib import Path
+from typing import Callable
 
 from app.models.types import ModelNotFoundError, TranscriptionError
 
@@ -100,6 +102,43 @@ class FasterWhisperProvider:
 
         raise TranscriptionError(f"Failed to load Whisper model: {message}") from last_exc
 
+    def _read_wav_duration_seconds(self, audio_path: Path) -> float | None:
+        try:
+            with wave.open(str(audio_path), "rb") as wav_file:
+                rate = wav_file.getframerate()
+                if rate <= 0:
+                    return None
+                return wav_file.getnframes() / float(rate)
+        except (OSError, wave.Error):
+            return None
+
+    def _collect_lines_with_progress(
+        self,
+        segments,
+        audio_duration_seconds: float | None,
+        progress_callback: Callable[[float], None] | None,
+    ) -> list[str]:
+        lines: list[str] = []
+        last_reported_percent = -1
+
+        for segment in segments:
+            text = (segment.text or "").strip()
+            if text:
+                lines.append(f"[UNKNOWN_SPEAKER] {text}")
+
+            if progress_callback and audio_duration_seconds and audio_duration_seconds > 0:
+                segment_end = float(getattr(segment, "end", 0.0) or 0.0)
+                progress = max(0.0, min(1.0, segment_end / audio_duration_seconds))
+                percent = int(progress * 100)
+                if percent > last_reported_percent:
+                    last_reported_percent = percent
+                    progress_callback(progress)
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        return lines
+
     def transcribe(
         self,
         audio_path: Path,
@@ -107,8 +146,10 @@ class FasterWhisperProvider:
         profile: str,
         language: str | None,
         timeout_sec: int,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> str:
         del timeout_sec  # faster-whisper does not provide a hard timeout per call.
+        audio_duration_seconds = self._read_wav_duration_seconds(audio_path)
 
         normalized_profile = (profile or "best").lower()
         transcribe_kwargs: dict[str, object] = {
@@ -126,12 +167,11 @@ class FasterWhisperProvider:
                 str(audio_path),
                 **transcribe_kwargs,
             )
-
-            lines: list[str] = []
-            for segment in segments:
-                text = (segment.text or "").strip()
-                if text:
-                    lines.append(f"[UNKNOWN_SPEAKER] {text}")
+            lines = self._collect_lines_with_progress(
+                segments=segments,
+                audio_duration_seconds=audio_duration_seconds,
+                progress_callback=progress_callback,
+            )
         except Exception as exc:
             message = str(exc).lower()
             if "cublas64_12.dll" in message or "cudnn" in message or "cuda" in message:
@@ -141,11 +181,11 @@ class FasterWhisperProvider:
                         str(audio_path),
                         **transcribe_kwargs,
                     )
-                    lines = []
-                    for segment in segments:
-                        text = (segment.text or "").strip()
-                        if text:
-                            lines.append(f"[UNKNOWN_SPEAKER] {text}")
+                    lines = self._collect_lines_with_progress(
+                        segments=segments,
+                        audio_duration_seconds=audio_duration_seconds,
+                        progress_callback=progress_callback,
+                    )
                 except Exception as cpu_exc:
                     raise TranscriptionError(
                         f"Whisper failed during CPU fallback: {cpu_exc}"

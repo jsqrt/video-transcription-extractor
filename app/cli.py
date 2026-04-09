@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import tempfile
+from typing import Callable
 from pathlib import Path
 
 from app.models.types import (
@@ -57,6 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     transcribe_parser.add_argument("--ext", default=None)
     transcribe_parser.add_argument("--stdout", action="store_true", dest="print_stdout")
+    transcribe_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Show transcription progress percentage in terminal.",
+    )
     transcribe_parser.add_argument("--verbose", action="store_true")
     transcribe_parser.add_argument("--timeout", type=int, default=300)
 
@@ -94,6 +100,7 @@ def _process_single_video(
     options: TranscribeOptions,
     output_dir: Path | None,
     print_stdout: bool,
+    show_progress: bool,
     logger: CliLogger,
     extractor: AudioExtractor,
     transcriber: Transcriber,
@@ -109,13 +116,30 @@ def _process_single_video(
 
         logger.status(video_path, "transcribing")
         model_name = _resolve_model_name(options)
+
+        progress_state = {"last": -1}
+
+        def _on_progress(value: float) -> None:
+            if not show_progress:
+                return
+            percent = max(0, min(100, int(value * 100)))
+            if percent <= progress_state["last"]:
+                return
+            progress_state["last"] = percent
+            print(f"[progress] {video_path.name}: {percent}%", end="\r", flush=True)
+
+        progress_callback: Callable[[float], None] | None = _on_progress if show_progress else None
         transcript = transcriber.transcribe(
             audio_path=wav_path,
             model=model_name,
             profile=options.profile,
             language=options.language,
             timeout_sec=options.timeout_sec,
+            progress_callback=progress_callback,
         )
+
+        if show_progress and progress_state["last"] >= 0:
+            print()
 
         output_path = writer.write(
             source_video=video_path,
@@ -172,6 +196,7 @@ def run_transcribe(args: argparse.Namespace) -> int:
                 options=options,
                 output_dir=output_dir,
                 print_stdout=args.print_stdout,
+                show_progress=args.progress,
                 logger=logger,
                 extractor=extractor,
                 transcriber=transcriber,

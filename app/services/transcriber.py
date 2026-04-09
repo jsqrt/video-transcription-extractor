@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Callable
 from typing import Protocol
 
 from app.models.types import Transcript, TranscriptionError, Utterance
@@ -15,6 +16,7 @@ class TranscriptionProvider(Protocol):
         profile: str,
         language: str | None,
         timeout_sec: int,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> str:
         ...
 
@@ -32,6 +34,7 @@ class Transcriber:
         profile: str,
         language: str | None,
         timeout_sec: int,
+        progress_callback: Callable[[float], None] | None = None,
     ) -> Transcript:
         raw_text = self.provider.transcribe(
             audio_path=audio_path,
@@ -39,6 +42,7 @@ class Transcriber:
             profile=profile,
             language=language,
             timeout_sec=timeout_sec,
+            progress_callback=progress_callback,
         )
         return self._to_structured_transcript(raw_text)
 
