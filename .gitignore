@@ -1,0 +1,4 @@
+video-sample
+__pycache__/
+*.pyc
+.venv/
