@@ -14,5 +14,11 @@ class CliLogger:
         if self.verbose:
             print(f"[info] {message}")
 
+    def warn(self, message: str) -> None:
+        # Warnings are always visible regardless of ``verbose`` — they signal
+        # lost data (e.g. Whisper trail-loop) or degraded fallbacks the user
+        # needs to know about.
+        print(f"[warn] {message}")
+
     def error(self, message: str) -> None:
         print(f"[error] {message}")

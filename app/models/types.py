@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -15,18 +14,32 @@ class Utterance:
 
 @dataclass(frozen=True)
 class Transcript:
-    utterances: list[Utterance]
+    utterances: tuple[Utterance, ...] = field(default_factory=tuple)
+
+
+SummaryMode = str  # one of: "none", "extractive", "ollama"
+
+
+@dataclass(frozen=True)
+class SummaryOptions:
+    mode: SummaryMode = "ollama"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.1:8b"
+    ollama_timeout_sec: int = 180
+    per_chapter_sentences: int = 3
+    overview_sentences: int = 5
+    title_max_words: int = 7
 
 
 @dataclass(frozen=True)
 class TranscribeOptions:
-    backend: str = "faster-whisper"
     model: Optional[str] = None
     profile: str = "best"
     language: Optional[str] = None
-    timeout_sec: int = 300
+    timeout_sec: int = 0  # 0 = disabled
     model_cache_dir: Optional[str] = None
-    allow_online_model_download: bool = False
+    include_chapters: bool = True
+    summary: SummaryOptions = field(default_factory=SummaryOptions)
 
 
 class AppError(Exception):
@@ -61,6 +74,9 @@ class TranscriptionError(AppError):
     pass
 
 
-@dataclass(frozen=True)
-class FileJob:
-    source_video: Path
+class SummarizationError(AppError):
+    pass
+
+
+class SummarizationTimeoutError(AppError):
+    pass

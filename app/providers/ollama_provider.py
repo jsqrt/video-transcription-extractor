@@ -1,89 +1,99 @@
+"""Ollama client used for local, GPU-accelerated text summarization.
+
+Uses Ollama's ``format: "json"`` parameter for reliable structured output.
+This is the modern way to get JSON from a local LLM: the sampling layer
+is constrained so the model can only emit valid JSON, which removes the
+brittle "hope the model formatted it right" step.
+
+Works with any model Ollama can serve — llama3.1, qwen2.5, gemma2,
+mistral, etc. Pick a model that handles your transcript language well:
+``qwen2.5:7b`` and ``llama3.1:8b`` are both solid for Ukrainian and
+English at 16 GB VRAM.
+"""
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Callable
+from typing import Any, Optional
 
 import httpx
 
 from app.models.types import (
     ModelNotFoundError,
     ProviderUnavailableError,
-    TranscriptionError,
-    TranscriptionTimeoutError,
+    SummarizationError,
+    SummarizationTimeoutError,
 )
 
 
-class OllamaProvider:
-    def __init__(self, base_url: str = "http://127.0.0.1:11434") -> None:
-        self.base_url = base_url.rstrip("/")
+class OllamaClient:
+    """Thin wrapper around a local Ollama ``/api/chat`` endpoint."""
 
-    def _extract_content_text(self, message: dict) -> str:
-        content = message.get("content", "")
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            parts: list[str] = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    text = part.get("text")
-                    if isinstance(text, str):
-                        parts.append(text)
-            return "\n".join(parts).strip()
-        return ""
-
-    def transcribe(
+    def __init__(
         self,
-        audio_path: Path,
-        model: str,
-        profile: str,
-        language: str | None,
-        timeout_sec: int,
-        progress_callback: Callable[[float], None] | None = None,
-    ) -> str:
-        del profile
-        del progress_callback
-        system_prompt = (
-            "You are an audio transcription assistant. "
-            "Return ONLY plain text transcript with one utterance per line. "
-            "Prefix each line with [SPEAKER_1], [SPEAKER_2], ... when possible. "
-            "If speaker is unknown, use [UNKNOWN_SPEAKER]."
-        )
-        user_prompt = (
-            f"Transcribe the attached audio file in language '{language or 'auto'}'. "
-            "Keep punctuation and do not add explanations."
-        )
+        base_url: str = "http://127.0.0.1:11434",
+        model: str = "llama3.1:8b",
+        timeout_sec: int = 180,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout_sec = timeout_sec
 
+    # ---- Probes -----------------------------------------------------------------
+
+    def is_available(self) -> bool:
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=3.0) as client:
+                response = client.get("/api/tags")
+                return response.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    # ---- Public API -------------------------------------------------------------
+
+    def chat_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        temperature: float = 0.2,
+    ) -> dict[str, Any]:
+        """Call ``/api/chat`` with ``format=json`` and return the parsed dict.
+
+        Raises on network / protocol / model errors. Always returns a dict
+        when it returns. If the model emits a JSON scalar or array, we wrap
+        it under ``{"value": ...}`` so callers have a uniform shape.
+        """
         payload = {
-            "model": model,
+            "model": self.model,
             "stream": False,
+            "format": "json",
+            "options": {"temperature": temperature, "top_p": 0.9},
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                    "audio": [str(audio_path)],
-                },
+                {"role": "user", "content": user_prompt},
             ],
         }
 
         try:
-            with httpx.Client(base_url=self.base_url, timeout=timeout_sec) as client:
+            with httpx.Client(base_url=self.base_url, timeout=self.timeout_sec) as client:
                 response = client.post("/api/chat", json=payload)
         except httpx.ConnectError as exc:
             raise ProviderUnavailableError(
-                "Ollama is unavailable. Check that the service is running."
+                "Ollama is unavailable. Start it with `ollama serve` "
+                "and ensure it listens on 127.0.0.1:11434."
             ) from exc
         except httpx.TimeoutException as exc:
-            raise TranscriptionTimeoutError(
-                f"Request to Ollama timed out ({timeout_sec} seconds)."
+            raise SummarizationTimeoutError(
+                f"Ollama call timed out after {self.timeout_sec}s."
             ) from exc
         except httpx.HTTPError as exc:
-            raise TranscriptionError(f"Ollama HTTP error: {exc}") from exc
+            raise SummarizationError(f"Ollama HTTP error: {exc}") from exc
 
         if response.status_code == 404:
             raise ModelNotFoundError(
-                f"Model '{model}' was not found in Ollama. Run: ollama pull {model}"
+                f"Model '{self.model}' was not found in Ollama. "
+                f"Run: ollama pull {self.model}"
             )
 
         if response.status_code >= 400:
@@ -95,17 +105,27 @@ class OllamaProvider:
                 message = body
             if "model" in message.lower() and "not found" in message.lower():
                 raise ModelNotFoundError(
-                    f"Model '{model}' was not found in Ollama. Run: ollama pull {model}"
+                    f"Model '{self.model}' was not found in Ollama. "
+                    f"Run: ollama pull {self.model}"
                 )
-            raise TranscriptionError(f"Ollama returned an error: {message}")
+            raise SummarizationError(f"Ollama returned an error: {message}")
 
         data = response.json()
         message = data.get("message")
         if not isinstance(message, dict):
-            raise TranscriptionError("Invalid Ollama response: missing message field")
+            raise SummarizationError("Invalid Ollama response: missing message field")
 
-        text = self._extract_content_text(message)
-        if not text:
-            raise TranscriptionError("Ollama returned empty transcription")
+        content = message.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            raise SummarizationError("Ollama returned empty content")
 
-        return text
+        try:
+            parsed_content = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise SummarizationError(
+                f"Ollama returned non-JSON content despite format=json: {exc}"
+            ) from exc
+
+        if not isinstance(parsed_content, dict):
+            return {"value": parsed_content}
+        return parsed_content
