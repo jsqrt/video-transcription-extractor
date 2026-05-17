@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Manual fallback: install the Describely Finder Quick Actions.
 #
-# Describely.app installs them automatically on first launch
-# (app/gui/macos_integration.py). This script exists for the case
-# where that auto-install was skipped (sandbox, TCC denial, .app
-# placed somewhere unusual) and the user wants to re-trigger it
-# without re-installing the .app.
+# NOT shipped in the v1 .pkg installer (Describely.app installs the
+# Quick Actions automatically on first launch — see
+# app/gui/macos_integration.py). Kept in the repo so a maintainer can
+# hand it to a user whose auto-install was blocked (TCC denial, .app
+# placed somewhere unusual) and who wants to retry without
+# re-installing the .pkg.
 #
 # Generates two services in ~/Library/Services/:
 #   * "Describely Create Transcription.workflow" → writes <name>.clean.md

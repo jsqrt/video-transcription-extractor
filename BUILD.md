@@ -5,10 +5,10 @@ only need the resulting `.exe` (Windows) or `.dmg` (macOS).
 
 ## One-time prerequisites
 
-* Python 3.10+ (3.11 recommended).
-* `ffmpeg` on `PATH` (used on the build machine; the user bundle ships
+- Python 3.10+ (3.11 recommended).
+- `ffmpeg` on `PATH` (used on the build machine; the user bundle ships
   its own audio decoder via PyAV, so end users do not need ffmpeg).
-* A configured `.venv`:
+- A configured `.venv`:
   ```
   python -m venv .venv
   # Windows:
@@ -20,11 +20,12 @@ only need the resulting `.exe` (Windows) or `.dmg` (macOS).
 
 ### Platform-specific
 
-* **Windows:** [Inno Setup 6](https://jrsoftware.org/isinfo.php). The
+- **Windows:** [Inno Setup 6](https://jrsoftware.org/isinfo.php). The
   default `ISCC.exe` path is `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`;
   override with `-IsccPath` in `build.ps1` if installed elsewhere.
-* **macOS:** `brew install create-dmg`. Used to assemble the DMG with
-  the `.app`, the Quick Action installer, and the Terms of Use.
+- **macOS:** Nothing extra to install. The .pkg installer is built via
+  `pkgbuild` + `productbuild`, both shipped with macOS. (Earlier
+  versions of this project used `create-dmg`; that flow is retired.)
 
 ### Optional, for nicer icons
 
@@ -67,8 +68,9 @@ python scripts/generate_icons.py
 ```
 
 Outputs:
-* `build/assets/app.ico`  — Windows (multi-resolution).
-* `build/assets/app.icns` — macOS (only generated on macOS, because the
+
+- `build/assets/app.ico` — Windows (multi-resolution).
+- `build/assets/app.icns` — macOS (only generated on macOS, because the
   script shells out to `iconutil`).
 
 If you skip this step, the spec quietly falls back to no icon, and
@@ -81,12 +83,19 @@ powershell -ExecutionPolicy Bypass -File build\windows\build.ps1
 ```
 
 Steps performed:
+
 1. Verifies `models/large-v3/`.
 2. `pip install -r requirements-gui.txt` + PyInstaller.
 3. `pyinstaller build/pyinstaller/videote.spec` →
    `dist/Describely/`.
 4. Inno Setup packages the bundle into
    `build/windows/out/Describely-Setup-1.0.0.exe`.
+
+```
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+    "y:\PETS\video-transcription-extractor\build\windows\installer.iss" `
+    "/DProjectRoot=y:\PETS\video-transcription-extractor"
+```
 
 Bundle only (skip installer):
 
@@ -95,16 +104,18 @@ powershell -ExecutionPolicy Bypass -File build\windows\build.ps1 -SkipInstaller
 ```
 
 Outputs:
-* `dist\Describely\Describely.exe` — portable bundle.
-* `build\windows\out\Describely-Setup-1.0.0.exe` — installer.
+
+- `dist\Describely\Describely.exe` — portable bundle.
+- `build\windows\out\Describely-Setup-1.0.0.exe` — installer.
 
 The installer:
-* Installs per-user under `%LocalAppData%\Describely` (no admin).
-* **Shows TERMS.md as the license agreement** — the user must accept
+
+- Installs per-user under `%LocalAppData%\Describely` (no admin).
+- **Shows TERMS.md as the license agreement** — the user must accept
   it to proceed.
-* Optionally registers "Create transcription" in the Explorer right-
+- Optionally registers "Create transcription" in the Explorer right-
   click menu for `.mp4 .mkv .mov .avi .webm .m4v .mp3 .wav .m4a .flac`.
-* Uninstall is available from Settings → Apps.
+- Uninstall is available from Settings → Apps.
 
 ## macOS build
 
@@ -113,32 +124,43 @@ The installer:
 ```
 
 Steps performed:
+
 1. Verifies `models/large-v3/`.
 2. `pip install -r requirements-gui.txt` + PyInstaller.
 3. PyInstaller produces `dist/Describely.app`.
-4. Ad-hoc `codesign` so Gatekeeper accepts it on the build machine
-   (end users still see the first-launch warning unless you replace
-   this with a notarized signature — see below).
-5. `create-dmg` packages the `.app`, `Install-QuickAction.command`,
-   the workflow bundle, and `TERMS.md` into
-   `build/macos/out/Describely-1.0.0.dmg`.
+4. Ad-hoc `codesign` so Gatekeeper accepts the bundle on the build
+   machine (end users still see the first-launch warning unless you
+   replace this with a notarized signature — see below).
+5. `pkgbuild` wraps the .app + the postinstall script into a
+   component .pkg.
+6. `productbuild` wraps the component into a distribution installer
+   with Welcome / License / Conclusion screens at
+   `build/macos/out/Describely-1.0.0.pkg`.
 
-App only:
+App only (skip installer):
 
 ```
-SKIP_DMG=1 ./build/macos/build.sh
+SKIP_PKG=1 ./build/macos/build.sh
 ```
 
 What the user sees:
-1. Opens the `.dmg`.
-2. Drags `Describely.app` into `Applications`.
-3. Reads `TERMS.md` (also shipped on the DMG).
-4. Double-clicks `Install-QuickAction.command` → the Quick Action
-   "Create Transcription" is registered in `~/Library/Services/`.
 
-After that, right-click on a video in Finder → Quick Actions →
-"Create Transcription" launches the `.app` with the selected files
-(via `open -a`).
+1. Double-clicks the `.pkg` from Downloads.
+2. Wizard: Welcome → **Software License Agreement** (must Agree to the
+   TERMS) → Install → Finish.
+3. The post-install script copies `Describely.app` into
+   `/Applications`, marks the TERMS as accepted (so the GUI does not
+   re-prompt), and **launches the .app** under the installing user's
+   session.
+4. On first launch Describely auto-registers two Finder Quick Actions
+   ("Create Transcription" and "Create Summary") under
+   `~/Library/Services/`. Right-click on a video in Finder → Quick
+   Actions → either of them launches the .app with the selected file
+   in the queue.
+
+Earlier versions of Describely shipped a DMG with a separate
+`Install-QuickAction.command`. That layout is retired — the .pkg flow
+delivers a single double-click experience.
 
 ### Notarization (optional)
 
@@ -147,11 +169,15 @@ launch (the user has to right-click → Open). If you have a Developer
 ID certificate:
 
 ```
-codesign --deep --options runtime --sign "Developer ID Application: NAME (TEAMID)" \
-    dist/Describely.app
-xcrun notarytool submit dist/Describely-1.0.0.dmg \
-    --apple-id you@example.com --team-id TEAMID --password APP_SPECIFIC --wait
-xcrun stapler staple dist/Describely-1.0.0.dmg
+codesign --deep --options runtime --timestamp \
+    --sign "Developer ID Application: NAME (TEAMID)" dist/Describely.app
+productsign --sign "Developer ID Installer: NAME (TEAMID)" \
+    build/macos/out/Describely-1.0.0.pkg \
+    build/macos/out/Describely-1.0.0-signed.pkg
+xcrun notarytool submit build/macos/out/Describely-1.0.0-signed.pkg \
+    --apple-id you@example.com --team-id TEAMID \
+    --password APP_SPECIFIC --wait
+xcrun stapler staple build/macos/out/Describely-1.0.0-signed.pkg
 ```
 
 ## Icons
@@ -165,11 +191,11 @@ regenerate after every tweak.
 
 ## Troubleshooting
 
-| Symptom | Cause | What to do |
-|---|---|---|
-| `Embedded model not found at models/large-v3` | Did not run `scripts/fetch_model.py` | Run it. |
-| PyInstaller warns `WARNING: Hidden import "X" not found` | Dynamic import that the analyzer missed | If the runtime breaks, add `X` to `hiddenimports` in `videote.spec`. |
-| Windows installer does not register the right-click | User unchecked the "Context menu" task during install | Re-run the installer. |
-| macOS Quick Action does not appear | Either `Install-QuickAction.command` was not run, **or** the `.app` is not located at `/Applications/Describely.app` | Drag the `.app` into `/Applications`, then run the `.command`. |
-| `Gatekeeper: app is damaged and can't be opened` | macOS doesn't accept the ad-hoc signature | User runs `xattr -dr com.apple.quarantine /Applications/Describely.app` or you ship a notarized build. |
-| Inno Setup compile fails: `LicenseFile not found` | `TERMS.md` got moved or renamed | Restore `TERMS.md` at the repo root (it is referenced by the installer script). |
+| Symptom                                                  | Cause                                                                                                                | What to do                                                                                             |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `Embedded model not found at models/large-v3`            | Did not run `scripts/fetch_model.py`                                                                                 | Run it.                                                                                                |
+| PyInstaller warns `WARNING: Hidden import "X" not found` | Dynamic import that the analyzer missed                                                                              | If the runtime breaks, add `X` to `hiddenimports` in `videote.spec`.                                   |
+| Windows installer does not register the right-click      | User unchecked the "Context menu" task during install                                                                | Re-run the installer.                                                                                  |
+| macOS Quick Action does not appear                       | Either `Install-QuickAction.command` was not run, **or** the `.app` is not located at `/Applications/Describely.app` | Drag the `.app` into `/Applications`, then run the `.command`.                                         |
+| `Gatekeeper: app is damaged and can't be opened`         | macOS doesn't accept the ad-hoc signature                                                                            | User runs `xattr -dr com.apple.quarantine /Applications/Describely.app` or you ship a notarized build. |
+| Inno Setup compile fails: `LicenseFile not found`        | `TERMS.md` got moved or renamed                                                                                      | Restore `TERMS.md` at the repo root (it is referenced by the installer script).                        |

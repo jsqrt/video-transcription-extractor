@@ -1,0 +1,46 @@
+#!/bin/bash
+# Runs as root after pkgbuild finishes copying Describely.app into
+# /Applications. We use it for two things:
+#   1. Mark the Terms of Use as accepted (the installer's license page
+#      already required the user to agree, so we don't need a second
+#      prompt on first launch).
+#   2. Auto-launch Describely.app as the original (non-root) user.
+#
+# Failures are non-fatal: if anything below errors out, the install is
+# still considered successful and the user can launch the app manually.
+
+set -u
+
+# pkg installer hands us $USER as 'root'. The actual installing user is
+# in $HOME or, more reliably, in the install-target's owner.
+TARGET_USER="${USER:-}"
+if [ "$TARGET_USER" = "root" ] || [ -z "$TARGET_USER" ]; then
+  TARGET_USER="$(stat -f '%Su' /dev/console)"
+fi
+
+if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+  # Could not figure out the real user; skip user-scoped steps.
+  exit 0
+fi
+
+TARGET_HOME="$(eval echo "~${TARGET_USER}")"
+
+# (1) Record TERMS acceptance so the GUI's first-run modal stays
+# silent. The installer's license screen already gated the install.
+DATA_DIR="${TARGET_HOME}/Library/Application Support/Describely"
+mkdir -p "$DATA_DIR" || true
+cat > "${DATA_DIR}/terms-accepted-v1.flag" <<EOF
+Describely TERMS accepted via macOS installer.
+version=v1
+EOF
+chown -R "${TARGET_USER}" "${DATA_DIR}" || true
+
+# (2) Launch the app as the installing user. ``launchctl asuser`` runs
+# the command inside that user's session so the Dock icon shows up,
+# Quick Actions register, etc.
+USER_UID="$(id -u "$TARGET_USER")"
+if [ -n "$USER_UID" ]; then
+  /bin/launchctl asuser "$USER_UID" /usr/bin/open -a "/Applications/Describely.app" || true
+fi
+
+exit 0

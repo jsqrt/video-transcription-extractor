@@ -24,7 +24,7 @@ import platform
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
 
 # ---- Paths ----------------------------------------------------------------
 
@@ -67,21 +67,43 @@ WORKFLOW_TEMPLATE = ROOT / "build" / "macos" / "_workflow_template"
 if sys.platform == "darwin" and WORKFLOW_TEMPLATE.is_dir():
     datas.append((str(WORKFLOW_TEMPLATE), "_workflow_template"))
 
-# faster_whisper and ctranslate2 ship binary blobs that PyInstaller's
-# import analysis misses on some platforms — pull them in explicitly.
-datas += collect_data_files("faster_whisper")
 # imageio_ffmpeg packages an ffmpeg binary inside the wheel — pull it
 # in as data so the GUI bundle does not depend on a system ffmpeg.
 datas += collect_data_files("imageio_ffmpeg")
-binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("av")
+binaries = collect_dynamic_libs("av")
 
-# ---- Hidden imports -------------------------------------------------------
-
-hiddenimports = [
+# Heavy ML packages: each one has lazy / private submodules and native
+# binaries that PyInstaller's static analyzer routinely misses. The
+# safest fix is collect_all(), which returns (binaries, datas, hidden)
+# for every importable name inside the package.
+#
+# numpy 2.x in particular ships private submodules like
+# ``numpy._core._exceptions`` that are imported lazily on first use;
+# without this loop the bundle starts and then crashes on the first
+# ``import numpy`` indirectly performed by faster_whisper.
+_HEAVY_PACKAGES = (
+    "numpy",
     "faster_whisper",
     "ctranslate2",
     "tokenizers",
     "huggingface_hub",
+    "onnxruntime",
+    "av",
+)
+_collected_hidden: list[str] = []
+for _pkg in _HEAVY_PACKAGES:
+    try:
+        _bins, _datas, _hidden = collect_all(_pkg)
+    except Exception:
+        # Package not installed — skip silently. onnxruntime is optional.
+        continue
+    binaries += _bins
+    datas += _datas
+    _collected_hidden += _hidden
+
+# ---- Hidden imports -------------------------------------------------------
+
+hiddenimports = _collected_hidden + [
     "httpx",
     "imageio_ffmpeg",
     "app",
@@ -89,6 +111,9 @@ hiddenimports = [
     "app.gui.main_window",
     "app.gui.worker",
     "app.gui.model_manager",
+    "app.gui.first_run",
+    "app.gui.app_logger",
+    "app.gui.macos_integration",
     "app.services",
     "app.services.pipeline",
     "app.providers.faster_whisper_provider",

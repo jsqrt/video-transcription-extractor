@@ -42,10 +42,7 @@ and ship two DMGs over time (mark the Intel one "experimental").
 1. Install **Python 3.11** via `brew install python@3.11` or python.org.
    Verify `python3 -c "import platform; print(platform.machine())"`
    returns `arm64` on Apple Silicon (not `x86_64`).
-2. Install **create-dmg**:
-   ```
-   brew install create-dmg
-   ```
+2. No extra tools — `pkgbuild` and `productbuild` ship with macOS.
 3. Create the venv:
    ```
    python3 -m venv .venv
@@ -167,7 +164,7 @@ If anything is off, fix and rebuild before shipping.
 
 ---
 
-## 5. Build the macOS DMG
+## 5. Build the macOS installer
 
 From a Terminal in the repo root, with the venv activated:
 
@@ -181,7 +178,10 @@ The script:
 3. Runs PyInstaller → `dist/Describely.app`.
 4. Ad-hoc codesigns the .app (lets Gatekeeper accept it on the build
    machine — does NOT satisfy notarization).
-5. Runs `create-dmg` → `build/macos/out/Describely-1.0.0.dmg`.
+5. Runs `pkgbuild` → component package with the .app + postinstall
+   script.
+6. Runs `productbuild` → final distribution installer at
+   `build/macos/out/Describely-1.0.0.pkg`.
 
 Expected runtime: 10–20 minutes.
 
@@ -189,34 +189,38 @@ Expected runtime: 10–20 minutes.
 
 On a **different** macOS machine (or a fresh user account):
 
-1. Copy the DMG over.
-2. Open it. Drag `Describely.app` into `Applications`.
-3. Open Finder → /Applications → right-click `Describely.app` → Open
-   → Open (clears Gatekeeper).
-4. Verify the TERMS modal appears on first launch and acceptance is
-   required.
+1. Copy the `.pkg` over to `~/Downloads/`.
+2. If Gatekeeper says "damaged", clear the quarantine bit:
+   ```
+   xattr -dr com.apple.quarantine ~/Downloads/Describely-1.0.0.pkg
+   ```
+3. Double-click the `.pkg`. Walk through the installer:
+   * **Welcome** screen — reads OK.
+   * **Software License Agreement** — TERMS appear; click **Agree**.
+     The Install button only enables after Agree.
+   * **Install** — enter your Mac password if prompted. Wait ~10
+     seconds while the .app copies to `/Applications`.
+   * **Finish** — verify Describely auto-launches at this point.
+4. Inside Describely, confirm the TERMS modal does **not** appear (the
+   installer already recorded the acceptance).
 5. Quit Describely.
-6. Back in the DMG, double-click `Install-QuickAction.command`. If
-   "damaged" warning appears, run:
-   ```
-   xattr -dr com.apple.quarantine "/Volumes/Describely/Install-QuickAction.command"
-   ```
-   and retry.
-7. Confirm the notification "Installed — right-click a video and
-   choose Quick Actions → Create Transcription" appears.
-8. Right-click a video in Finder → Quick Actions → Create
-   Transcription. (If Quick Actions submenu does not show the item,
-   open System Settings → Privacy & Security → Extensions →
-   Finder, enable "Create Transcription".)
-9. Watch the GUI process the file. Verify the two output files
-   appear next to the video.
-10. Test cancellation: queue a long video, click Cancel on its row,
-    confirm status becomes "Cancelled" within a few seconds.
+6. In Finder, right-click any video → **Quick Actions** → expect to
+   see both **Create Transcription** and **Create Summary**.
+   * If they don't show: System Settings → Privacy & Security →
+     Extensions → Finder → enable them. (Sometimes a Finder relaunch
+     is needed: `killall Finder`.)
+7. Click "Create Summary". A Describely window opens with the file in
+   the queue. Watch it process. Verify `<name>.summary.md` (and only
+   that, not `.clean.md`) appears next to the video.
+8. Repeat with "Create Transcription" → expect only `<name>.clean.md`.
+9. Test cancellation: queue a long video, click Cancel on its row,
+   confirm status becomes "Cancelled" within a few seconds.
 
 To uninstall and test cleanup:
 ```
 rm -rf /Applications/Describely.app
-rm -rf "$HOME/Library/Services/CreateTranscription.workflow"
+rm -rf "$HOME/Library/Services/Describely Create Transcription.workflow"
+rm -rf "$HOME/Library/Services/Describely Create Summary.workflow"
 rm -rf "$HOME/Library/Application Support/Describely"
 ```
 
@@ -236,7 +240,7 @@ If you are pushing to GitHub and want a release page:
 ```
 gh release create v1.0.0 \
     "build/windows/out/Describely-Setup-1.0.0.exe" \
-    "build/macos/out/Describely-1.0.0.dmg" \
+    "build/macos/out/Describely-1.0.0.pkg" \
     --title "Describely v1.0.0" \
     --notes-file RELEASE_NOTES.md
 ```

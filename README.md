@@ -42,18 +42,22 @@ For each processed file, two artifacts appear next to it:
 
 ### macOS (Intel + Apple Silicon)
 
-1. Download `Describely-X.Y.Z.dmg`.
-2. Open it, drag `Describely.app` into `Applications`.
-3. Double-click `Install-QuickAction.command` to register the right-
-   click Quick Action in Finder.
-4. **First launch:** right-click `Describely.app` in `/Applications` →
-   Open → Open (to clear Gatekeeper). Only required once.
+1. Download `Describely-X.Y.Z.pkg`.
+2. Double-click to open. The macOS Installer steps you through:
+   * **Welcome** — what gets installed.
+   * **Software License Agreement** — the Describely Terms of Use; you
+     must click **Agree** to enable the Install button.
+   * **Install** — copies `Describely.app` into `/Applications` and
+     registers the Finder right-click items.
+   * **Finish** — Describely launches automatically.
+3. On first launch, right-click `Describely.app` in `/Applications` →
+   Open → Open if Gatekeeper warns about the unsigned binary. Only
+   needed once.
 
-If `Install-QuickAction.command` fails with "damaged":
+If you see "package is damaged" before the installer even opens, run:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Describely.app
-xattr -dr com.apple.quarantine "/Volumes/Describely/Install-QuickAction.command"
+xattr -dr com.apple.quarantine ~/Downloads/Describely-1.0.0.pkg
 ```
 
 ## Usage
