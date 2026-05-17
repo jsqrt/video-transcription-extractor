@@ -1,13 +1,12 @@
-"""High-level pipeline wrapper shared by the CLI and the MCP server.
+"""High-level pipeline wrapper shared by the CLI, the MCP server, and the GUI.
 
-The CLI and the MCP server both need to perform exactly the same sequence of
-steps for a single media file:
+All three frontends perform exactly the same sequence of steps for a single
+media file:
 
     extract audio → transcribe → cleanup → chapterize → summarize → write files.
 
-Three artefacts are produced per video:
+Two artefacts are produced per video:
 
-* ``<stem>.raw.txt``     — verbatim Whisper output (if enabled).
 * ``<stem>.clean.md``    — readable markdown after cleanup (if enabled).
 * ``<stem>.summary.md``  — four-section summary (if enabled and summary is on).
 
@@ -21,6 +20,7 @@ has a default but can be overridden from tests.
 from __future__ import annotations
 
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -29,7 +29,6 @@ from app.models.types import Transcript, TranscribeOptions
 from app.services.audio_extractor import AudioExtractor
 from app.services.chapterizer import ChapterTitleStyle
 from app.services.cleanup import CleanMode
-from app.services.raw_writer import RawTranscriptWriter
 from app.services.summarizer import Summarizer, SummaryResult
 from app.services.summary_writer import SummaryWriter
 from app.services.transcriber import Transcriber
@@ -42,10 +41,9 @@ from app.services.writer import (
 
 @dataclass(frozen=True)
 class PipelineResult:
-    """Everything a caller (CLI / MCP / tests) typically wants to report."""
+    """Everything a caller (CLI / MCP / GUI / tests) typically wants to report."""
 
     transcript_path: Optional[Path]  # <stem>.clean.md
-    raw_transcript_path: Optional[Path]  # <stem>.raw.txt
     summary_path: Optional[Path]  # <stem>.summary.md
     duration_seconds: float
     chapter_count: int
@@ -77,27 +75,29 @@ def run_pipeline(
     output_dir: Optional[Path],
     title_style: ChapterTitleStyle = "keywords",
     clean_mode: CleanMode = "rule-based",
-    write_raw_file: bool = True,
     write_clean_file: bool = True,
     write_summary_file: bool = True,
     extractor: AudioExtractor,
     transcriber: Transcriber,
     summarizer: Summarizer,
     clean_writer: Optional[CleanTranscriptWriter] = None,
-    raw_writer: Optional[RawTranscriptWriter] = None,
     summary_writer: Optional[SummaryWriter] = None,
     progress_fn: Optional[ProgressFn] = None,
     logger_fn: Optional[LoggerFn] = None,
     model_name: Optional[str] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> PipelineResult:
     """Run the full single-file pipeline.
 
     Parameters are intentionally explicit: callers pass already-constructed
     services so this function never reaches into providers or loggers itself.
+
+    ``cancel_event`` lets a GUI / long-running caller request cooperative
+    cancellation between stages and (when the Transcriber supports it)
+    inside the transcription loop itself.
     """
 
     clean_writer = clean_writer or CleanTranscriptWriter()
-    raw_writer = raw_writer or RawTranscriptWriter()
     summary_writer = summary_writer or SummaryWriter()
     logger = logger_fn or (lambda _msg: None)
     chosen_model = model_name or _default_model_name(options)
@@ -108,6 +108,9 @@ def run_pipeline(
         logger(f"extract_audio: {video_path.name}")
         extractor.extract(video_path=video_path, output_wav_path=wav_path)
 
+        if cancel_event is not None and cancel_event.is_set():
+            raise _cancelled()
+
         logger(f"transcribe: model={chosen_model} profile={options.profile}")
         raw_transcript: Transcript = transcriber.transcribe(
             audio_path=wav_path,
@@ -116,18 +119,11 @@ def run_pipeline(
             language=options.language,
             timeout_sec=options.timeout_sec,
             progress_callback=progress_fn,
+            cancel_event=cancel_event,
         )
 
-    # Write the raw file FIRST so the verbatim artefact always exists even if
-    # cleanup or summarization fails later. The raw file is the ground truth.
-    raw_transcript_path: Optional[Path] = None
-    if write_raw_file:
-        raw_transcript_path = raw_writer.write(
-            source_video=video_path,
-            transcript=raw_transcript,
-            output_dir=output_dir,
-        )
-        logger(f"wrote_raw_transcript: {raw_transcript_path}")
+    if cancel_event is not None and cancel_event.is_set():
+        raise _cancelled()
 
     # Run cleanup exactly once. Both the clean.md file and the summarizer
     # must see the same post-cleanup transcript so chapter boundaries and
@@ -147,6 +143,8 @@ def run_pipeline(
 
     summary_result: Optional[SummaryResult] = None
     if options.summary.mode != "none" and chapters:
+        if cancel_event is not None and cancel_event.is_set():
+            raise _cancelled()
         logger(f"summarize: mode={options.summary.mode} chapters={len(chapters)}")
         summary_result = summarizer.summarize(
             transcript=cleaned_transcript,
@@ -158,8 +156,6 @@ def run_pipeline(
 
     transcript_path: Optional[Path] = None
     if write_clean_file:
-        # cleaned_transcript was already produced above; pass it as `raw` so
-        # the writer just formats (clean_mode="raw" means "no more cleanup").
         transcript_path = clean_writer.write(
             source_video=video_path,
             transcript=cleaned_transcript,
@@ -185,7 +181,6 @@ def run_pipeline(
 
     return PipelineResult(
         transcript_path=transcript_path,
-        raw_transcript_path=raw_transcript_path,
         summary_path=summary_path,
         duration_seconds=_duration_from_transcript(cleaned_transcript),
         chapter_count=len(chapters),
@@ -202,3 +197,9 @@ def _default_model_name(options: TranscribeOptions) -> str:
     if options.model:
         return options.model
     return "small" if options.profile == "fast" else "large-v3"
+
+
+def _cancelled():
+    from app.models.types import TranscriptionTimeoutError
+
+    return TranscriptionTimeoutError("Cancelled by caller")

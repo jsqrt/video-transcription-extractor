@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -16,6 +17,7 @@ class TranscriptionProvider(Protocol):
         language: str | None,
         timeout_sec: int,
         progress_callback: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> str: ...
 
 
@@ -54,6 +56,7 @@ class Transcriber:
         language: str | None,
         timeout_sec: int,
         progress_callback: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> Transcript:
         self.last_trail_loop_trim = 0
         self.last_trail_loop_sample = ""
@@ -64,6 +67,7 @@ class Transcriber:
             language=language,
             timeout_sec=timeout_sec,
             progress_callback=progress_callback,
+            cancel_event=cancel_event,
         )
         return self._to_structured_transcript(raw_text)
 

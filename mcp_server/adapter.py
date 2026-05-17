@@ -3,13 +3,10 @@
 Split out from ``server.py`` so the smoke tests can exercise the real
 validation + response-shaping logic without pulling in the ``mcp`` SDK.
 
-Since the three-file refactor the response exposes:
+The response exposes:
 
-* ``transcript_path``      — the ``<stem>.clean.md`` file (was
-                              ``.transcript.txt``; this is a breaking
-                              change for existing MCP clients).
-* ``raw_transcript_path``  — the verbatim ``<stem>.raw.txt`` file.
-* ``summary_path``         — the ``<stem>.summary.md`` file (unchanged).
+* ``transcript_path``      — the ``<stem>.clean.md`` file.
+* ``summary_path``         — the ``<stem>.summary.md`` file.
 """
 
 from __future__ import annotations
@@ -26,7 +23,6 @@ from app.models.types import (
 from app.services.audio_extractor import AudioExtractor
 from app.services.cleanup import CleanMode
 from app.services.pipeline import PipelineResult, run_pipeline
-from app.services.raw_writer import RawTranscriptWriter
 from app.services.scanner import DEFAULT_EXTENSIONS
 from app.services.summarizer import Summarizer
 from app.services.summary_writer import SummaryWriter
@@ -72,16 +68,13 @@ class TranscribeArguments:
     model: Optional[str] = None
     title_style: str = "keywords"
     timeout_sec: int = 0
-    # Three-file schema controls.
     clean_mode: CleanMode = "rule-based"
-    write_raw: bool = True
     write_clean: bool = True
 
 
 @dataclass(frozen=True)
 class TranscribeResponse:
-    transcript_path: Optional[str]  # <stem>.clean.md (was <stem>.transcript.txt)
-    raw_transcript_path: Optional[str]  # <stem>.raw.txt
+    transcript_path: Optional[str]  # <stem>.clean.md
     summary_path: Optional[str]
     duration_seconds: float
     chapter_count: int
@@ -117,7 +110,6 @@ class PipelineAdapter:
         transcriber_factory: Optional[Callable[[], Transcriber]] = None,
         summarizer_factory: Optional[Callable[[SummaryOptions], Summarizer]] = None,
         clean_writer_factory: Optional[Callable[[CleanMode], CleanTranscriptWriter]] = None,
-        raw_writer_factory: Optional[Callable[[], RawTranscriptWriter]] = None,
         summary_writer_factory: Optional[Callable[[], SummaryWriter]] = None,
         allowed_extensions: frozenset[str] = ALLOWED_EXTENSIONS,
         logger_fn: Optional[Callable[[str], None]] = None,
@@ -127,7 +119,6 @@ class PipelineAdapter:
         self._transcriber_factory = transcriber_factory or _default_transcriber
         self._summarizer_factory = summarizer_factory or _default_summarizer
         self._clean_writer_factory = clean_writer_factory or _default_clean_writer
-        self._raw_writer_factory = raw_writer_factory or RawTranscriptWriter
         self._summary_writer_factory = summary_writer_factory or SummaryWriter
         self._allowed_extensions = allowed_extensions
         self._logger = logger_fn or (lambda _msg: None)
@@ -229,14 +220,12 @@ class PipelineAdapter:
                 output_dir=output_dir,
                 title_style=args.title_style,
                 clean_mode=args.clean_mode,
-                write_raw_file=bool(args.write_raw),
                 write_clean_file=bool(args.write_clean),
                 write_summary_file=(args.summary_mode != "none"),
                 extractor=self._extractor_factory(),
                 transcriber=self._transcriber_factory(),
                 summarizer=self._summarizer_factory(summary_options),
                 clean_writer=self._clean_writer_factory(args.clean_mode),
-                raw_writer=self._raw_writer_factory(),
                 summary_writer=self._summary_writer_factory(),
                 progress_fn=progress_fn,
                 logger_fn=self._logger,
@@ -249,9 +238,6 @@ class PipelineAdapter:
         return TranscribeResponse(
             transcript_path=(
                 str(result.transcript_path) if result.transcript_path else None
-            ),
-            raw_transcript_path=(
-                str(result.raw_transcript_path) if result.raw_transcript_path else None
             ),
             summary_path=str(result.summary_path) if result.summary_path else None,
             duration_seconds=round(float(result.duration_seconds), 3),

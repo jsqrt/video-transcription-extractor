@@ -3,13 +3,13 @@
 The generated summary file has:
 
 1. **Overview** — a 2-4 sentence TL;DR of the video.
-2. **Ключові факти / Key facts** — bullet list of concrete facts that
-   were *explicitly spoken* (dates, numbers, names, prices, quantities).
-   Each bullet can optionally end with a ``[MM:SS]`` timecode pointing
-   back to the supporting utterance.
-3. **Наміри / дії (intents)** — bullet list of actions/recommendations/
+2. **Key Facts** — bullet list of concrete facts that were *explicitly
+   spoken* (dates, numbers, names, prices, quantities). Each bullet can
+   optionally end with a ``[MM:SS]`` timecode pointing back to the
+   supporting utterance.
+3. **Intents & Actions** — bullet list of actions/recommendations/
    predictions the speaker made: who, what, when.
-4. **По чаптерах (per-chapter)** — one short bullet per chapter.
+4. **Per Chapter** — one short bullet per chapter.
 
 Two strategies:
 

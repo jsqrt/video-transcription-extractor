@@ -32,7 +32,6 @@ def _fake_pipeline_factory(
     recorded: _Recorded,
     *,
     clean_name: str = "fake.clean.md",
-    raw_name: str = "fake.raw.txt",
     summary_name: Optional[str] = "fake.summary.md",
     duration: float = 123.456,
     chapter_count: int = 4,
@@ -48,11 +47,6 @@ def _fake_pipeline_factory(
             transcript_path = output_dir / clean_name
             transcript_path.write_text("fake clean", encoding="utf-8")
 
-        raw_transcript_path: Optional[Path] = None
-        if kwargs.get("write_raw_file", True):
-            raw_transcript_path = output_dir / raw_name
-            raw_transcript_path.write_text("fake raw", encoding="utf-8")
-
         summary_path: Optional[Path] = None
         if summary_name and kwargs.get("write_summary_file", True):
             summary_path = output_dir / summary_name
@@ -60,7 +54,6 @@ def _fake_pipeline_factory(
 
         return PipelineResult(
             transcript_path=transcript_path,
-            raw_transcript_path=raw_transcript_path,
             summary_path=summary_path,
             duration_seconds=duration,
             chapter_count=chapter_count,
@@ -78,7 +71,6 @@ def _dummy_factory_chain():
         "transcriber_factory": lambda: object(),
         "summarizer_factory": lambda options: object(),
         "clean_writer_factory": lambda mode: object(),
-        "raw_writer_factory": lambda: object(),
         "summary_writer_factory": lambda: object(),
     }
 
@@ -97,7 +89,11 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "invalid_argument")
 
     def test_rejects_missing_file(self) -> None:
-        args = TranscribeArguments(file_path="/no/such/path/does/not/exist.mp4")
+        # Construct an absolute path that is valid on this platform but
+        # cannot exist (a long random tail under the system temp root).
+        missing = Path(TemporaryDirectory().name) / "no_such_dir" / "missing.mp4"
+        self.assertTrue(missing.is_absolute())
+        args = TranscribeArguments(file_path=str(missing))
         with self.assertRaises(AdapterError) as ctx:
             self.adapter.transcribe(args)
         self.assertEqual(ctx.exception.code, "not_found")
@@ -168,7 +164,6 @@ class ShapeTest(unittest.TestCase):
             pipeline_fn=_fake_pipeline_factory(
                 self.recorded,
                 clean_name="video.clean.md",
-                raw_name="video.raw.txt",
                 summary_name="video.summary.md",
                 duration=17.25,
                 chapter_count=3,
@@ -198,8 +193,6 @@ class ShapeTest(unittest.TestCase):
             self.assertEqual(response.utterance_count, 88)
             assert response.transcript_path is not None
             self.assertTrue(response.transcript_path.endswith("video.clean.md"))
-            assert response.raw_transcript_path is not None
-            self.assertTrue(response.raw_transcript_path.endswith("video.raw.txt"))
             assert response.summary_path is not None
             self.assertTrue(response.summary_path.endswith("video.summary.md"))
 
@@ -208,7 +201,6 @@ class ShapeTest(unittest.TestCase):
                 set(as_dict.keys()),
                 {
                     "transcript_path",
-                    "raw_transcript_path",
                     "summary_path",
                     "duration_seconds",
                     "chapter_count",
@@ -238,19 +230,6 @@ class ShapeTest(unittest.TestCase):
         self.assertIsNone(response.summary_path)
         # Verify the adapter forwarded write_summary_file=False.
         self.assertEqual(self.recorded.calls[-1]["write_summary_file"], False)
-
-    def test_write_raw_false_skips_raw_file(self) -> None:
-        with TemporaryDirectory() as tmp:
-            media = Path(tmp) / "clip.mp4"
-            media.write_bytes(b"\x00" * 16)
-            response = self.adapter.transcribe(
-                TranscribeArguments(
-                    file_path=str(media),
-                    write_raw=False,
-                )
-            )
-        self.assertIsNone(response.raw_transcript_path)
-        self.assertEqual(self.recorded.calls[-1]["write_raw_file"], False)
 
     def test_write_clean_false_skips_clean_file(self) -> None:
         with TemporaryDirectory() as tmp:

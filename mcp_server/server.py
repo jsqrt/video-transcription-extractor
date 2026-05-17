@@ -26,11 +26,10 @@ from mcp_server.adapter import (
 SERVER_NAME = "video-transcription-extractor"
 SERVER_INSTRUCTIONS = (
     "Transcribe local audio or video files with a Whisper + optional Ollama "
-    "pipeline. The 'transcribe_media' tool returns on-disk paths to three "
-    "artefacts: raw_transcript_path (<stem>.raw.txt — verbatim), "
-    "transcript_path (<stem>.clean.md — cleaned, with chapters), and "
-    "summary_path (<stem>.summary.md — overview + key facts + intents + "
-    "per-chapter). Any of them can be disabled via write_raw, write_clean, "
+    "pipeline. The 'transcribe_media' tool returns on-disk paths to two "
+    "artefacts: transcript_path (<stem>.clean.md — cleaned, with chapters) "
+    "and summary_path (<stem>.summary.md — overview + key facts + intents "
+    "+ per-chapter). Either can be disabled via write_clean=false or "
     "summary_mode='none'. Progress is reported via MCP progress "
     "notifications when the client supplies a progress token."
 )
@@ -58,11 +57,11 @@ def build_server(adapter: Optional[PipelineAdapter] = None):
     @server.tool(
         name="transcribe_media",
         description=(
-            "Transcribe a local audio or video file. Produces up to three "
-            "files: <stem>.raw.txt (verbatim), <stem>.clean.md (cleaned "
-            "with chapters), and <stem>.summary.md (when summary_mode is "
-            "'ollama' or 'extractive'). file_path must be absolute and "
-            "point to a supported format."
+            "Transcribe a local audio or video file. Produces up to two "
+            "files: <stem>.clean.md (cleaned with chapters) and "
+            "<stem>.summary.md (when summary_mode is 'ollama' or "
+            "'extractive'). file_path must be absolute and point to a "
+            "supported format."
         ),
     )
     async def transcribe_media(
@@ -76,7 +75,6 @@ def build_server(adapter: Optional[PipelineAdapter] = None):
         title_style: str = "keywords",
         timeout_sec: int = 0,
         clean_mode: str = "rule-based",
-        write_raw: bool = True,
         write_clean: bool = True,
         ctx: Context = None,  # type: ignore[assignment]
     ) -> dict[str, Any]:
@@ -91,7 +89,6 @@ def build_server(adapter: Optional[PipelineAdapter] = None):
             title_style=title_style,
             timeout_sec=timeout_sec,
             clean_mode=clean_mode,  # type: ignore[arg-type]
-            write_raw=write_raw,
             write_clean=write_clean,
         )
 
@@ -147,7 +144,6 @@ def _rebind_logger(
         transcriber_factory=adapter._transcriber_factory,  # noqa: SLF001
         summarizer_factory=adapter._summarizer_factory,  # noqa: SLF001
         clean_writer_factory=adapter._clean_writer_factory,  # noqa: SLF001
-        raw_writer_factory=adapter._raw_writer_factory,  # noqa: SLF001
         summary_writer_factory=adapter._summary_writer_factory,  # noqa: SLF001
         allowed_extensions=adapter._allowed_extensions,  # noqa: SLF001
         logger_fn=logger_fn,

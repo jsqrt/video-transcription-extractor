@@ -33,22 +33,41 @@ def _looks_like_cuda_failure(exc: BaseException) -> bool:
     return any(fragment in message for fragment in _CUDA_ERROR_FRAGMENTS)
 
 
+def _platform_prefers_gpu_by_default() -> bool:
+    """macOS has no CUDA path — skip the GPU probe entirely there."""
+    return sys.platform != "darwin"
+
+
 class FasterWhisperProvider:
     """Local Whisper inference via ``faster-whisper`` with optional GPU."""
 
     def __init__(
         self,
         model_cache_dir: Path | None = None,
-        prefer_gpu: bool = True,
+        prefer_gpu: bool | None = None,
     ) -> None:
         self._model_cache: dict[str, object] = {}
         self.model_cache_dir = model_cache_dir
-        self.prefer_gpu = prefer_gpu
+        self.prefer_gpu = (
+            _platform_prefers_gpu_by_default() if prefer_gpu is None else prefer_gpu
+        )
 
     # ---- CUDA runtime discovery -------------------------------------------------
 
     def _configure_cuda_runtime(self) -> None:
-        """Best-effort CUDA shared-library discovery on Windows and Linux."""
+        """Best-effort CUDA shared-library discovery on Windows and Linux.
+
+        In frozen builds (PyInstaller), we skip scanning ``sys.prefix`` for
+        NVIDIA wheels: an attacker with write access to the install dir
+        could plant a malicious ``cublas.dll`` under
+        ``site-packages/nvidia/`` and have us prepend it to PATH. The
+        bundled binary ships its own CUDA libs in the bundle root, which
+        the OS loader finds via the binary's own search path.
+        """
+        if sys.platform == "darwin":
+            return
+        if getattr(sys, "frozen", False):
+            return
         candidates = self._cuda_library_candidates()
         for candidate in candidates:
             resolved = str(candidate)
@@ -191,7 +210,7 @@ class FasterWhisperProvider:
 
         for segment in segments:
             if cancel_event is not None and cancel_event.is_set():
-                raise TranscriptionTimeoutError("Transcription cancelled by timeout")
+                raise TranscriptionTimeoutError("Transcription cancelled")
 
             text = (getattr(segment, "text", "") or "").strip()
             if text:
@@ -251,6 +270,7 @@ class FasterWhisperProvider:
         language: str | None,
         timeout_sec: int,
         progress_callback: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> str:
         audio_duration_seconds = self._read_wav_duration_seconds(audio_path)
         transcribe_kwargs = self._build_transcribe_kwargs(profile=profile, language=language)
@@ -264,6 +284,7 @@ class FasterWhisperProvider:
                 audio_duration_seconds=audio_duration_seconds,
                 progress_callback=progress_callback,
                 timeout_sec=timeout_sec,
+                cancel_event=cancel_event,
             )
         except TranscriptionTimeoutError:
             raise
@@ -279,6 +300,7 @@ class FasterWhisperProvider:
                         audio_duration_seconds=audio_duration_seconds,
                         progress_callback=progress_callback,
                         timeout_sec=timeout_sec,
+                        cancel_event=cancel_event,
                     )
                 except TranscriptionTimeoutError:
                     raise
@@ -304,7 +326,11 @@ class FasterWhisperProvider:
         audio_duration_seconds: float | None,
         progress_callback: Callable[[float], None] | None,
         timeout_sec: int,
+        cancel_event: threading.Event | None,
     ) -> list[str]:
+        # When a timeout is requested, push work into a worker thread so the
+        # main thread can wake up after ``timeout_sec``. Otherwise, run
+        # inline — but still honour ``cancel_event`` via the segment loop.
         if timeout_sec and timeout_sec > 0:
             return self._run_with_deadline(
                 whisper_model=whisper_model,
@@ -313,13 +339,14 @@ class FasterWhisperProvider:
                 audio_duration_seconds=audio_duration_seconds,
                 progress_callback=progress_callback,
                 timeout_sec=timeout_sec,
+                external_cancel=cancel_event,
             )
         segments, _info = whisper_model.transcribe(str(audio_path), **transcribe_kwargs)
         return self._collect_lines_with_progress(
             segments=segments,
             audio_duration_seconds=audio_duration_seconds,
             progress_callback=progress_callback,
-            cancel_event=None,
+            cancel_event=cancel_event,
         )
 
     def _run_with_deadline(
@@ -330,6 +357,7 @@ class FasterWhisperProvider:
         audio_duration_seconds: float | None,
         progress_callback: Callable[[float], None] | None,
         timeout_sec: int,
+        external_cancel: threading.Event | None,
     ) -> list[str]:
         """Cooperative timeout: cancels on the next segment boundary.
 
@@ -358,13 +386,24 @@ class FasterWhisperProvider:
 
         worker = threading.Thread(target=_worker, name="whisper-transcribe", daemon=True)
         worker.start()
-        try:
-            kind, payload = result_queue.get(timeout=timeout_sec)
-        except queue.Empty:
-            cancel_event.set()
-            raise TranscriptionTimeoutError(
-                f"Transcription exceeded timeout ({timeout_sec}s)."
-            ) from None
+        # Poll either the worker queue or the external cancel signal.
+        poll_interval = 0.5
+        elapsed = 0.0
+        while True:
+            try:
+                kind, payload = result_queue.get(timeout=poll_interval)
+                break
+            except queue.Empty:
+                pass
+            if external_cancel is not None and external_cancel.is_set():
+                cancel_event.set()
+                raise TranscriptionTimeoutError("Transcription cancelled") from None
+            elapsed += poll_interval
+            if elapsed >= timeout_sec:
+                cancel_event.set()
+                raise TranscriptionTimeoutError(
+                    f"Transcription exceeded timeout ({timeout_sec}s)."
+                ) from None
 
         if kind == "err":
             assert isinstance(payload, BaseException)

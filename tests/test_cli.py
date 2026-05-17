@@ -27,10 +27,9 @@ class CliParserTest(unittest.TestCase):
         self.assertEqual(args.summary_overview, 5)
         self.assertEqual(args.title_max_words, 7)
 
-    def test_defaults_for_three_file_schema(self) -> None:
+    def test_defaults_for_output_schema(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["transcribe", "--input", "x.mp4"])
-        self.assertTrue(args.raw_file)
         self.assertTrue(args.clean_file)
         self.assertEqual(args.clean_mode, "rule-based")
 
@@ -41,12 +40,13 @@ class CliParserTest(unittest.TestCase):
         )
         self.assertFalse(args.summary_file)
 
-    def test_no_raw_file_flag(self) -> None:
+    def test_raw_flag_no_longer_exists(self) -> None:
+        """Guard: --no-raw-file/--raw-file were removed in the GUI migration."""
         parser = build_parser()
-        args = parser.parse_args(
-            ["transcribe", "--input", "x.mp4", "--no-raw-file"]
-        )
-        self.assertFalse(args.raw_file)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                ["transcribe", "--input", "x.mp4", "--no-raw-file"]
+            )
 
     def test_no_clean_file_flag(self) -> None:
         parser = build_parser()

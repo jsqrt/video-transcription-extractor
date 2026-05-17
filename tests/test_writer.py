@@ -181,7 +181,7 @@ class SummaryWriterTest(unittest.TestCase):
         )
         self.assertIn("# Summary: myclip", markdown)
         self.assertIn("## Overview", markdown)
-        self.assertIn("## По чаптерах", markdown)
+        self.assertIn("## Per Chapter", markdown)
         for index in range(1, len(chapters) + 1):
             self.assertIn(f"Chapter {index:02d}", markdown)
 
@@ -205,10 +205,10 @@ class SummaryWriterTest(unittest.TestCase):
             chapters=chapters,
             summary_result=summary,
         )
-        self.assertIn("## Ключові факти", markdown)
+        self.assertIn("## Key Facts", markdown)
         self.assertIn("[00:12] Нафта $100 за барель", markdown)
         self.assertIn("- 4 кораблі у протоці", markdown)
-        self.assertIn("## Наміри / дії", markdown)
+        self.assertIn("## Intents & Actions", markdown)
         self.assertIn("[01:30] США планують оголосити нові умови", markdown)
 
     def test_summary_writer_skips_when_empty(self) -> None:

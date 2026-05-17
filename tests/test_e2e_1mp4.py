@@ -2,8 +2,7 @@
 
 The sandbox running these tests cannot download a Whisper model, so we
 bypass the actual acoustic model and feed the pipeline a ready-made
-transcript from ``video-sample/1.transcript.txt`` (kept for history) or
-``video-sample/1.clean.md`` (new three-file schema). What *is* exercised
+transcript from ``video-sample/1.clean.md``. What *is* exercised
 end-to-end:
 
 * ``AudioExtractor`` runs real ffmpeg on a real mp4 and produces a 16 kHz
@@ -12,8 +11,7 @@ end-to-end:
 * ``rule_based_cleanup`` runs over the parsed transcript.
 * ``build_chapters`` and ``ExtractiveSummarizer`` run on the cleaned
   transcript.
-* ``RawTranscriptWriter``, ``CleanTranscriptWriter`` and
-  ``SummaryWriter`` render the three artefacts.
+* ``CleanTranscriptWriter`` and ``SummaryWriter`` render the two artefacts.
 """
 
 from __future__ import annotations
@@ -28,7 +26,6 @@ from app.models.types import SummaryOptions
 from app.services.audio_extractor import AudioExtractor
 from app.services.chapterizer import build_chapters
 from app.services.cleanup import rule_based_cleanup
-from app.services.raw_writer import RawTranscriptWriter
 from app.services.summarizer import Summarizer
 from app.services.summary_writer import SummaryWriter
 from app.services.transcriber import Transcriber
@@ -151,18 +148,6 @@ class E2E1Mp4Test(unittest.TestCase):
             fake_video = out_dir / "1.mp4"
             fake_video.write_bytes(b"pretend")
 
-            raw_path = RawTranscriptWriter().write(
-                source_video=fake_video,
-                transcript=transcript,
-                output_dir=out_dir,
-            )
-            self.assertEqual(raw_path.name, "1.raw.txt")
-            raw_content = raw_path.read_text(encoding="utf-8")
-            # Every non-empty raw line starts with a [MM:SS] or [HH:MM:SS] prefix.
-            for line in raw_content.splitlines():
-                if line.strip():
-                    self.assertRegex(line, r"^\[\d{2}:\d{2}(:\d{2})?\] ")
-
             refined_titles = refined_titles_from_summary(summary)
             clean_path = CleanTranscriptWriter().write(
                 source_video=fake_video,
@@ -190,7 +175,7 @@ class E2E1Mp4Test(unittest.TestCase):
             self.assertEqual(summary_path.name, "1.summary.md")
             summary_content = summary_path.read_text(encoding="utf-8")
             self.assertIn("## Overview", summary_content)
-            self.assertIn("## По чаптерах", summary_content)
+            self.assertIn("## Per Chapter", summary_content)
 
 
 if __name__ == "__main__":

@@ -3,14 +3,14 @@
 The summary file has exactly four sections, matching the structure built
 by :class:`app.services.summarizer.Summarizer`:
 
-1. ``## Overview``         — prose TL;DR (2-4 sentences).
-2. ``## Ключові факти``    — bullets of concrete facts (numbers, dates,
-                              names), each optionally prefixed with a
-                              ``[MM:SS]`` timecode.
-3. ``## Наміри / дії``     — bullets of actions / predictions /
-                              recommendations the speaker made.
-4. ``## По чаптерах``      — one short bullet per chapter with a
-                              timecode, refined title, and summary.
+1. ``## Overview``           — prose TL;DR (2-4 sentences).
+2. ``## Key Facts``          — bullets of concrete facts (numbers, dates,
+                                names), each optionally prefixed with a
+                                ``[MM:SS]`` timecode.
+3. ``## Intents & Actions``  — bullets of actions / predictions /
+                                recommendations the speaker made.
+4. ``## Per Chapter``        — one short bullet per chapter with a
+                                timecode, refined title, and summary.
 
 Empty sections are omitted so a sparse summary doesn't produce empty
 headings.
@@ -121,19 +121,19 @@ def summary_to_markdown(
         lines.append("")
 
     if has_facts:
-        lines.append("## Ключові факти")
+        lines.append("## Key Facts")
         lines.append("")
         lines.extend(_render_fact_bullets(summary_result.key_facts))
         lines.append("")
 
     if has_intents:
-        lines.append("## Наміри / дії")
+        lines.append("## Intents & Actions")
         lines.append("")
         lines.extend(_render_intent_bullets(summary_result.intents))
         lines.append("")
 
     if has_per_chapter:
-        lines.append("## По чаптерах")
+        lines.append("## Per Chapter")
         lines.append("")
         lines.extend(_render_per_chapter_bullets(chapters, summary_result))
         lines.append("")

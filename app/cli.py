@@ -23,7 +23,6 @@ from app.services.audio_extractor import AudioExtractor
 from app.services.cleanup import CleanMode
 from app.services.logger import CliLogger
 from app.services.pipeline import run_pipeline
-from app.services.raw_writer import RawTranscriptWriter
 from app.services.scanner import parse_extensions, scan_videos
 from app.services.summarizer import Summarizer
 from app.services.summary_writer import SummaryWriter
@@ -123,14 +122,6 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe_parser.set_defaults(summary_file=True)
 
     # ---- Output files ---------------------------------------------------------
-    transcribe_parser.add_argument(
-        "--no-raw-file",
-        action="store_false",
-        dest="raw_file",
-        help="Do not write the verbatim <name>.raw.txt file.",
-    )
-    transcribe_parser.set_defaults(raw_file=True)
-
     transcribe_parser.add_argument(
         "--no-clean-file",
         action="store_false",
@@ -286,7 +277,6 @@ def _process_single_video(
     show_progress: bool,
     title_style: str,
     clean_mode: CleanMode,
-    write_raw_file: bool,
     write_clean_file: bool,
     write_summary_file: bool,
     logger: CliLogger,
@@ -294,7 +284,6 @@ def _process_single_video(
     transcriber: Transcriber,
     summarizer: Summarizer,
     clean_writer: CleanTranscriptWriter,
-    raw_writer: RawTranscriptWriter,
     summary_writer: SummaryWriter,
 ) -> None:
     logger.status(video_path, "queued")
@@ -321,14 +310,12 @@ def _process_single_video(
         output_dir=output_dir,
         title_style=title_style,
         clean_mode=clean_mode,
-        write_raw_file=write_raw_file,
         write_clean_file=write_clean_file,
         write_summary_file=write_summary_file,
         extractor=extractor,
         transcriber=transcriber,
         summarizer=summarizer,
         clean_writer=clean_writer,
-        raw_writer=raw_writer,
         summary_writer=summary_writer,
         progress_fn=progress_callback,
         logger_fn=logger.info,
@@ -338,8 +325,6 @@ def _process_single_video(
     if show_progress and progress_state["last"] >= 0:
         print()
 
-    if result.raw_transcript_path is not None:
-        logger.info(f"Saved raw transcript: {result.raw_transcript_path}")
     if result.transcript_path is not None:
         logger.info(f"Saved transcript: {result.transcript_path}")
     if result.summary_path is not None:
@@ -393,7 +378,6 @@ def run_transcribe(args: argparse.Namespace) -> int:
         llm_client=llm_cleanup_client,
         logger_fn=logger.info,
     )
-    raw_writer = RawTranscriptWriter()
     summary_writer = SummaryWriter()
 
     failed = 0
@@ -407,7 +391,6 @@ def run_transcribe(args: argparse.Namespace) -> int:
                 show_progress=args.progress,
                 title_style=args.title_style,
                 clean_mode=args.clean_mode,
-                write_raw_file=args.raw_file,
                 write_clean_file=args.clean_file,
                 write_summary_file=args.summary_file,
                 logger=logger,
@@ -415,7 +398,6 @@ def run_transcribe(args: argparse.Namespace) -> int:
                 transcriber=transcriber,
                 summarizer=summarizer,
                 clean_writer=clean_writer,
-                raw_writer=raw_writer,
                 summary_writer=summary_writer,
             )
         except (

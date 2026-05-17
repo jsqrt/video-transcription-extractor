@@ -51,7 +51,7 @@ def _make_transcript(sentences: list[str]) -> Transcript:
 
 
 class RunPipelineTest(unittest.TestCase):
-    def test_writes_all_three_files_and_returns_stats(self) -> None:
+    def test_writes_both_files_and_returns_stats(self) -> None:
         transcript = _make_transcript(
             [
                 "Іран контролює Ормузьку протоку.",
@@ -103,17 +103,11 @@ class RunPipelineTest(unittest.TestCase):
                 places=3,
             )
 
-            # clean.md exists and has the new name.
+            # clean.md exists.
             self.assertIsNotNone(result.transcript_path)
             assert result.transcript_path is not None
             self.assertTrue(result.transcript_path.exists())
             self.assertEqual(result.transcript_path.name, "myclip.clean.md")
-
-            # raw.txt exists and has the expected name.
-            self.assertIsNotNone(result.raw_transcript_path)
-            assert result.raw_transcript_path is not None
-            self.assertTrue(result.raw_transcript_path.exists())
-            self.assertEqual(result.raw_transcript_path.name, "myclip.raw.txt")
 
             # summary.md exists.
             self.assertIsNotNone(result.summary_path)
@@ -126,6 +120,13 @@ class RunPipelineTest(unittest.TestCase):
         video, wav = extractor.called[0]
         self.assertEqual(video, video_path)
         self.assertTrue(wav.name.endswith(".wav"))
+
+    def test_pipeline_result_has_no_raw_field(self) -> None:
+        """Guard: raw transcript output is intentionally removed."""
+        self.assertNotIn(
+            "raw_transcript_path",
+            {f.name for f in PipelineResult.__dataclass_fields__.values()},
+        )
 
     def test_skips_summary_file_when_disabled(self) -> None:
         transcript = _make_transcript(
@@ -162,29 +163,6 @@ class RunPipelineTest(unittest.TestCase):
             self.assertIsNone(result.summary_path)
             self.assertFalse((root / "clip.summary.md").exists())
 
-    def test_skips_raw_file_when_disabled(self) -> None:
-        transcript = _make_transcript(["alpha", "beta", "gamma"])
-        extractor = _FakeExtractor()
-        transcriber = _FakeTranscriber(transcript)
-        summarizer = Summarizer(options=SummaryOptions(mode="none"))
-
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            video_path = root / "clip.mp4"
-            video_path.write_bytes(b"pretend")
-
-            result = run_pipeline(
-                video_path=video_path,
-                options=TranscribeOptions(summary=SummaryOptions(mode="none")),
-                output_dir=root,
-                write_raw_file=False,
-                extractor=extractor,
-                transcriber=transcriber,
-                summarizer=summarizer,
-            )
-        self.assertIsNone(result.raw_transcript_path)
-        self.assertFalse((root / "clip.raw.txt").exists())
-
     def test_skips_clean_file_when_disabled(self) -> None:
         transcript = _make_transcript(["alpha", "beta", "gamma"])
         extractor = _FakeExtractor()
@@ -207,8 +185,6 @@ class RunPipelineTest(unittest.TestCase):
             )
         self.assertIsNone(result.transcript_path)
         self.assertFalse((root / "clip.clean.md").exists())
-        # The raw file should still land on disk.
-        self.assertIsNotNone(result.raw_transcript_path)
 
     def test_summary_mode_none_produces_no_summary(self) -> None:
         transcript = _make_transcript(
@@ -239,8 +215,6 @@ class RunPipelineTest(unittest.TestCase):
         self.assertIsNone(result.summary_path)
 
     def test_rule_based_mode_drops_duplicates_from_clean_file(self) -> None:
-        # Two identical neighbour utterances must collapse to one in clean.md
-        # but remain untouched in raw.txt.
         transcript = Transcript(
             utterances=(
                 Utterance(
@@ -286,16 +260,12 @@ class RunPipelineTest(unittest.TestCase):
             )
 
             assert result.transcript_path is not None
-            assert result.raw_transcript_path is not None
             clean_text = result.transcript_path.read_text(encoding="utf-8")
-            raw_text = result.raw_transcript_path.read_text(encoding="utf-8")
 
         self.assertEqual(clean_text.count("Це важливий факт."), 1)
-        # raw is verbatim — both occurrences still there.
-        self.assertEqual(raw_text.count("Це важливий факт."), 2)
 
     def test_runs_without_optional_services(self) -> None:
-        """CleanTranscriptWriter / RawTranscriptWriter / SummaryWriter have sane defaults."""
+        """CleanTranscriptWriter / SummaryWriter have sane defaults."""
         transcript = _make_transcript(["alpha beta", "gamma delta"])
         extractor = _FakeExtractor()
         transcriber = _FakeTranscriber(transcript)
@@ -314,9 +284,7 @@ class RunPipelineTest(unittest.TestCase):
                 summarizer=summarizer,
             )
             assert result.transcript_path is not None
-            assert result.raw_transcript_path is not None
             self.assertTrue(result.transcript_path.exists())
-            self.assertTrue(result.raw_transcript_path.exists())
 
 
 if __name__ == "__main__":

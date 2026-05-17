@@ -1,0 +1,11 @@
+# Extra deps for the desktop GUI (``python -m app.gui``).
+# Install with:
+#     python -m pip install -r requirements.txt -r requirements-gui.txt
+-r requirements.txt
+PySide6>=6.6,<7.0
+# Ships ffmpeg binaries inside the Python wheel so the PyInstaller bundle
+# does not depend on a system-installed ffmpeg. ~60 MB per platform.
+imageio-ffmpeg>=0.5,<1.0
+# Pinned: PyInstaller bootloaders have had CVEs historically; keep
+# a known-good version and bump deliberately after reviewing the changelog.
+pyinstaller==6.11.1
