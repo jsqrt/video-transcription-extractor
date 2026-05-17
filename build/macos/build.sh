@@ -82,17 +82,10 @@ mkdir -p "$OUT_DIR"
 PKG_PATH="$OUT_DIR/${APP_NAME}-${APP_VERSION}.pkg"
 rm -f "$PKG_PATH"
 
-# Stage the .app under a folder mirroring the install destination
-# (/Applications), which is what pkgbuild --root expects.
-STAGE="$(mktemp -d -t describely-pkg)"
-trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/Applications"
-cp -R "$APP_BUNDLE" "$STAGE/Applications/"
-
-# Stage the postinstall script. pkgbuild needs the scripts dir, and
-# every script in it must be executable.
+# Stage the postinstall script. pkgbuild requires a dedicated scripts
+# directory and every file in it must be executable.
 SCRIPTS_STAGE="$(mktemp -d -t describely-pkg-scripts)"
-trap 'rm -rf "$STAGE" "$SCRIPTS_STAGE"' EXIT
+trap 'rm -rf "$SCRIPTS_STAGE"' EXIT
 cp "$PROJECT_ROOT/build/macos/pkg/scripts/postinstall" "$SCRIPTS_STAGE/"
 chmod +x "$SCRIPTS_STAGE/postinstall"
 
@@ -100,7 +93,7 @@ chmod +x "$SCRIPTS_STAGE/postinstall"
 # productbuild looks for a flat directory of HTML / RTF / TXT files
 # referenced from Distribution.xml.
 RES_STAGE="$(mktemp -d -t describely-pkg-res)"
-trap 'rm -rf "$STAGE" "$SCRIPTS_STAGE" "$RES_STAGE"' EXIT
+trap 'rm -rf "$SCRIPTS_STAGE" "$RES_STAGE"' EXIT
 cp "$PROJECT_ROOT/build/macos/pkg/resources/welcome.html"    "$RES_STAGE/"
 cp "$PROJECT_ROOT/build/macos/pkg/resources/conclusion.html" "$RES_STAGE/"
 # license.txt is just the Terms of Use — the installer's License page
@@ -108,15 +101,24 @@ cp "$PROJECT_ROOT/build/macos/pkg/resources/conclusion.html" "$RES_STAGE/"
 cp "$PROJECT_ROOT/TERMS.md" "$RES_STAGE/license.txt"
 
 COMPONENT_DIR="$(mktemp -d -t describely-pkg-component)"
-trap 'rm -rf "$STAGE" "$SCRIPTS_STAGE" "$RES_STAGE" "$COMPONENT_DIR"' EXIT
+trap 'rm -rf "$SCRIPTS_STAGE" "$RES_STAGE" "$COMPONENT_DIR"' EXIT
 COMPONENT_PKG="$COMPONENT_DIR/Describely-component.pkg"
 
+# Use ``--component`` against the .app directly (canonical single-app
+# layout) instead of ``--root`` against a staging tree. The staging /
+# install-location combo trips pkgbuild on macOS 13+ when the source
+# contains PySide6 Qt frameworks with their nested symlinks. The
+# ``--ownership recommended`` flag tells pkgbuild to record sensible
+# defaults (root:wheel for system paths) instead of preserving the
+# build user's UID/GID, which would otherwise fail the install on
+# target machines.
 echo "==> Running pkgbuild (component package)"
 pkgbuild \
-  --root "$STAGE" \
+  --component "$APP_BUNDLE" \
   --identifier "$BUNDLE_ID" \
   --version "$APP_VERSION" \
-  --install-location "/" \
+  --install-location "/Applications" \
+  --ownership recommended \
   --scripts "$SCRIPTS_STAGE" \
   "$COMPONENT_PKG"
 
