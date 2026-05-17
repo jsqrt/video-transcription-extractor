@@ -29,11 +29,13 @@ only need the resulting `.exe` (Windows) or `.dmg` (macOS).
 ### Optional, for nicer icons
 
 ```
-pip install pillow cairosvg
+pip install pillow
 ```
 
-Used by `scripts/generate_icons.py` to render `build/assets/icon.svg`
-into platform binaries.
+PySide6 (already a build dependency) handles the SVG rasterization, so
+no additional system Cairo / `cairosvg` install is needed. The icon
+generator falls back to skipping the step if Pillow is missing — the
+build still succeeds with the default Python icon.
 
 ## One-time: pre-seed the embedded model
 

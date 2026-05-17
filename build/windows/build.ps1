@@ -42,7 +42,10 @@ $python = if (Test-Path $venvPython) { $venvPython } else { (Get-Command python)
 Write-Host "==> Using Python: $python"
 
 Write-Host "==> Installing build dependencies"
-& $python -m pip install --upgrade pip pyinstaller
+# Do NOT upgrade PyInstaller here — the requirements-gui.txt pins a
+# known-good version (bootloader CVEs in the past). Let the requirements
+# file decide.
+& $python -m pip install --upgrade pip
 & $python -m pip install -r (Join-Path $ProjectRoot "requirements-gui.txt")
 
 $dist = Join-Path $ProjectRoot "dist"
