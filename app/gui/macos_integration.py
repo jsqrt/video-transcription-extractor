@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from app.gui.app_logger import log as _file_log
 from app.gui.model_manager import user_data_dir
 
 TEMPLATE_DIRNAME = "_workflow_template"
@@ -125,6 +126,27 @@ def quick_actions_installed() -> bool:
     return _flag_path().exists()
 
 
+# Names produced by earlier versions of this code. They no longer match
+# what we ship, so on every install we sweep them out — otherwise the
+# user sees duplicate or stale "Create Transcription" entries pointing
+# at command lines that lack the new ``--mode`` argument.
+_LEGACY_WORKFLOW_NAMES = (
+    "CreateTranscription.workflow",
+    "CreateSummary.workflow",
+)
+
+
+def _remove_legacy_workflows(target_dir: Path) -> None:
+    for name in _LEGACY_WORKFLOW_NAMES:
+        legacy = target_dir / name
+        if not legacy.exists():
+            continue
+        try:
+            shutil.rmtree(legacy)
+        except OSError:
+            pass
+
+
 def install_quick_action(force: bool = False) -> bool:
     """Materialize both Finder Quick Actions and refresh Launch Services.
 
@@ -134,22 +156,39 @@ def install_quick_action(force: bool = False) -> bool:
     if sys.platform != "darwin":
         return True
 
-    if not force and quick_actions_installed():
+    _file_log("install_quick_action: start")
+    target_dir = _target_services_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Always sweep legacy names — even if the v2 flag already exists,
+    # a user upgrading from a pre-v2 build still has them on disk.
+    _remove_legacy_workflows(target_dir)
+    _file_log("install_quick_action: legacy swept")
+
+    # If the current-version targets are missing for any reason, force
+    # a reinstall regardless of the flag file. This makes the install
+    # self-healing when the user moves / deletes a workflow manually.
+    targets_missing = any(
+        not (target_dir / spec.target_name).is_dir() for spec in _SPECS
+    )
+    if not force and not targets_missing and quick_actions_installed():
+        _file_log("install_quick_action: already installed; skip")
         return True
 
     template = _find_template()
     if template is None:
+        _file_log("install_quick_action: template missing", level="ERROR")
         return False
-
-    target_dir = _target_services_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
+    _file_log(f"install_quick_action: template={template}")
 
     ok = True
     for spec in _SPECS:
         target = target_dir / spec.target_name
         try:
             _materialize_one(template, target, spec)
-        except OSError:
+            _file_log(f"install_quick_action: materialized {spec.target_name}")
+        except OSError as exc:
+            _file_log(f"install_quick_action: failed {spec.target_name}: {exc}", level="ERROR")
             ok = False
             continue
         try:

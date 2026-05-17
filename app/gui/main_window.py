@@ -16,6 +16,8 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QStatusBar,
     QToolBar,
     QTreeWidget,
@@ -31,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.gui.app_logger import log as _file_log
 from app.gui.worker import Job, JobMode, JobStatus, TranscriptionWorker
 
 
@@ -41,6 +45,27 @@ _STATUS_LABEL = {
     JobStatus.FAILED: "Failed",
     JobStatus.CANCELLED: "Cancelled",
 }
+
+_MODE_LABEL = {
+    JobMode.BOTH: "Transcription + Summary",
+    JobMode.TRANSCRIPTION: "Transcription",
+    JobMode.SUMMARY: "Summary",
+}
+
+
+def _open_in_file_manager(path: Path) -> None:
+    """Reveal ``path`` (or its parent) in Finder/Explorer."""
+    if not _is_safe_local_path(path):
+        return
+    if sys.platform == "win32":
+        if path.is_file():
+            subprocess.run(["explorer", "/select,", str(path)], check=False)
+        else:
+            os.startfile(str(path))  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.run(["open", "-R", str(path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(path.parent)], check=False)
 
 
 _URI_SCHEME_PREFIXES = (
@@ -62,19 +87,54 @@ def _is_safe_local_path(path: Path) -> bool:
     return path.is_absolute() and path.exists()
 
 
-def _open_in_file_manager(path: Path) -> None:
-    """Reveal ``path`` (or its parent) in Finder/Explorer."""
-    if not _is_safe_local_path(path):
-        return
-    if sys.platform == "win32":
-        if path.is_file():
-            subprocess.run(["explorer", "/select,", str(path)], check=False)
+class _ModePickerDialog(QDialog):
+    """Asks the user which artifact they want for the new batch.
+
+    Returned via ``selected_mode()`` after ``exec()`` == ``Accepted``.
+    """
+
+    def __init__(self, file_count: int, default_mode: JobMode, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Describely")
+        self.setModal(True)
+        self.setMinimumWidth(360)
+
+        layout = QVBoxLayout(self)
+        header = QLabel(
+            f"What should I produce for the {file_count} file(s) you added?"
+        )
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        self._btn_both = QRadioButton("Both — transcription and summary")
+        self._btn_trans = QRadioButton("Transcription only (.clean.md)")
+        self._btn_summary = QRadioButton("Summary only (.summary.md)")
+        layout.addWidget(self._btn_both)
+        layout.addWidget(self._btn_trans)
+        layout.addWidget(self._btn_summary)
+
+        # Pre-select whatever the toolbar's "current mode" was, so the
+        # user can hit Enter to repeat their last choice.
+        if default_mode == JobMode.TRANSCRIPTION:
+            self._btn_trans.setChecked(True)
+        elif default_mode == JobMode.SUMMARY:
+            self._btn_summary.setChecked(True)
         else:
-            os.startfile(str(path))  # noqa: S606
-    elif sys.platform == "darwin":
-        subprocess.run(["open", "-R", str(path)], check=False)
-    else:
-        subprocess.run(["xdg-open", str(path.parent)], check=False)
+            self._btn_both.setChecked(True)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_mode(self) -> JobMode:
+        if self._btn_trans.isChecked():
+            return JobMode.TRANSCRIPTION
+        if self._btn_summary.isChecked():
+            return JobMode.SUMMARY
+        return JobMode.BOTH
 
 
 class _JobRow:
@@ -84,6 +144,7 @@ class _JobRow:
         self.job_id = job.job_id
         self.item = QTreeWidgetItem([
             job.file_path.name,
+            _MODE_LABEL[job.mode],
             _STATUS_LABEL[job.status],
             "",
             "",
@@ -96,17 +157,17 @@ class _JobRow:
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(True)
-        tree.setItemWidget(self.item, 2, self.progress)
+        tree.setItemWidget(self.item, 3, self.progress)
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setFlat(True)
-        tree.setItemWidget(self.item, 3, self.cancel_btn)
+        tree.setItemWidget(self.item, 4, self.cancel_btn)
 
     def set_status(self, status: JobStatus, message: str = "") -> None:
         label = _STATUS_LABEL.get(status, status.value)
         if message and status == JobStatus.FAILED:
             label = f"{label}: {message[:60]}"
-        self.item.setText(1, label)
+        self.item.setText(2, label)
         if status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED):
             self.cancel_btn.setEnabled(False)
             if status == JobStatus.DONE:
@@ -125,23 +186,37 @@ class MainWindow(QMainWindow):
         initial_mode: JobMode = JobMode.BOTH,
     ) -> None:
         super().__init__()
+        _file_log("MainWindow.__init__: super done")
         self.setWindowTitle("Describely")
-        self.resize(800, 480)
+        self.resize(900, 500)
         if icon_path and icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
+        _file_log("MainWindow: title + icon set")
 
-        self._worker = TranscriptionWorker(self)
+        # See worker.py: TranscriptionWorker must not have a parent that
+        # lives on the main thread, otherwise Qt cannot route its
+        # signals back to us and the main window appears frozen.
+        self._worker = TranscriptionWorker()
         self._rows: dict[int, _JobRow] = {}
-        # Mode used for files added via toolbar buttons / drag-and-drop.
-        # The right-click flow forces a mode via --mode on argv.
-        self._current_mode: JobMode = initial_mode
+        # Last picked mode — used as the default selection in the next
+        # mode-picker dialog so a user processing a batch of summaries
+        # doesn't have to re-click every time.
+        self._last_picked_mode: JobMode = initial_mode
+        _file_log("MainWindow: worker constructed")
 
         self._build_ui()
+        _file_log("MainWindow: UI built")
         self._connect_signals()
+        _file_log("MainWindow: signals connected")
         self._worker.start()
+        _file_log("MainWindow: worker thread started")
 
+        # Initial files come from the right-click flow, which has
+        # already committed to a mode via the --mode argv flag. Skip
+        # the picker dialog for these — they are pre-decided.
         if initial_files:
-            self.add_files(initial_files, mode=initial_mode)
+            self._enqueue(initial_files, mode=initial_mode)
+            _file_log(f"MainWindow: queued {len(initial_files)} initial files")
 
     # ---- UI construction --------------------------------------------------
 
@@ -165,16 +240,17 @@ class MainWindow(QMainWindow):
         self._act_add_folder = act_add_folder
         self._act_cancel_all = act_cancel_all
 
-        # Queue tree.
+        # Queue tree. Columns: File, Type, Status, Progress, Cancel.
         self._tree = QTreeWidget()
-        self._tree.setColumnCount(4)
-        self._tree.setHeaderLabels(["File", "Status", "Progress", ""])
+        self._tree.setColumnCount(5)
+        self._tree.setHeaderLabels(["File", "Type", "Status", "Progress", ""])
         self._tree.setRootIsDecorated(False)
         self._tree.setAlternatingRowColors(True)
-        self._tree.setColumnWidth(0, 320)
-        self._tree.setColumnWidth(1, 140)
-        self._tree.setColumnWidth(2, 200)
-        self._tree.setColumnWidth(3, 100)
+        self._tree.setColumnWidth(0, 280)
+        self._tree.setColumnWidth(1, 170)
+        self._tree.setColumnWidth(2, 130)
+        self._tree.setColumnWidth(3, 180)
+        self._tree.setColumnWidth(4, 90)
         self._tree.itemDoubleClicked.connect(self._on_row_double_clicked)
         layout.addWidget(self._tree)
 
@@ -182,7 +258,7 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         self._hint = QLabel(
             "Tip: drag video files here, or right-click in Finder / Explorer "
-            "and choose “Create transcription”."
+            "and choose “Create transcription” / “Create summary”."
         )
         self._hint.setWordWrap(True)
         bottom.addWidget(self._hint, stretch=1)
@@ -225,24 +301,42 @@ class MainWindow(QMainWindow):
             else:
                 paths.append(p)
         if paths:
-            self.add_files(paths)
+            self._add_with_picker(paths)
 
     # ---- Public --------------------------------------------------------
 
-    def add_files(
-        self,
-        paths: list[Path],
-        mode: Optional[JobMode] = None,
-    ) -> None:
+    def _add_with_picker(self, paths: list[Path]) -> None:
+        """User-initiated add — prompts for mode, then enqueues."""
         cleaned = [Path(p).expanduser().resolve() for p in paths if Path(p).exists()]
         if not cleaned:
             return
-        jobs = self._worker.add_files(cleaned, mode=mode or self._current_mode)
+        dialog = _ModePickerDialog(
+            file_count=len(cleaned),
+            default_mode=self._last_picked_mode,
+            parent=self,
+        )
+        dialog.setWindowIcon(self.windowIcon())
+        if dialog.exec() != QDialog.Accepted:
+            self._status.showMessage("Add cancelled.")
+            return
+        mode = dialog.selected_mode()
+        self._last_picked_mode = mode
+        self._enqueue(cleaned, mode=mode)
+
+    def _enqueue(self, paths: list[Path], *, mode: JobMode) -> None:
+        """Add already-validated paths to the worker queue."""
+        if not paths:
+            return
+        jobs = self._worker.add_files(paths, mode=mode)
         for job in jobs:
             row = _JobRow(self._tree, job)
             self._rows[job.job_id] = row
-            row.cancel_btn.clicked.connect(lambda _checked=False, jid=job.job_id: self._on_cancel_one(jid))
-        self._status.showMessage(f"Added {len(jobs)} file(s).")
+            row.cancel_btn.clicked.connect(
+                lambda _checked=False, jid=job.job_id: self._on_cancel_one(jid)
+            )
+        self._status.showMessage(
+            f"Added {len(jobs)} file(s) — {_MODE_LABEL[mode]}."
+        )
 
     # ---- Slot handlers --------------------------------------------------
 
@@ -255,19 +349,50 @@ class MainWindow(QMainWindow):
             "*.mp3 *.wav *.flac *.m4a *.aac *.ogg *.opus *.wma);;All files (*.*)",
         )
         if paths:
-            self.add_files([Path(p) for p in paths])
+            self._add_with_picker([Path(p) for p in paths])
 
     def _on_add_folder(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Select a folder with videos")
         if directory:
-            self.add_files(self._enumerate_dir(Path(directory)))
+            self._add_with_picker(self._enumerate_dir(Path(directory)))
 
     def _on_cancel_all(self) -> None:
         self._worker.cancel_all()
-        self._status.showMessage("Cancel request sent for all jobs.")
+        # Wipe every still-pending row immediately. Rows that already
+        # finished (Done / Failed) stay so the user can review them.
+        for job_id in list(self._rows):
+            self._remove_row_if_pending(job_id)
+        self._status.showMessage("Cancelled all pending jobs.")
 
     def _on_cancel_one(self, job_id: int) -> None:
         self._worker.cancel_job(job_id)
+        # Single-job cancel always removes the row, per UX request.
+        # If the job was already running, the worker still emits a
+        # ``job_finished`` signal but the row is gone, so _on_job_finished
+        # gracefully no-ops.
+        self._remove_row(job_id)
+        self._status.showMessage("Job removed.")
+
+    def _remove_row(self, job_id: int) -> None:
+        row = self._rows.pop(job_id, None)
+        if row is None:
+            return
+        idx = self._tree.indexOfTopLevelItem(row.item)
+        if idx >= 0:
+            self._tree.takeTopLevelItem(idx)
+
+    def _remove_row_if_pending(self, job_id: int) -> None:
+        row = self._rows.get(job_id)
+        if row is None:
+            return
+        current_status = row.item.text(2)
+        # Rows in a terminal state ("Done" / "Failed: …") are preserved
+        # so the user can still see / open the produced files.
+        if current_status in (_STATUS_LABEL[JobStatus.DONE],):
+            return
+        if current_status.startswith(_STATUS_LABEL[JobStatus.FAILED]):
+            return
+        self._remove_row(job_id)
 
     def _on_job_started(self, job_id: int) -> None:
         row = self._rows.get(job_id)
@@ -283,6 +408,7 @@ class MainWindow(QMainWindow):
     def _on_job_finished(self, job_id: int, status_value: str) -> None:
         row = self._rows.get(job_id)
         if row is None:
+            # Row was already removed via cancel — nothing to update.
             return
         try:
             status = JobStatus(status_value)

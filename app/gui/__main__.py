@@ -152,24 +152,32 @@ def main(argv: list[str] | None = None) -> int:
     mode = _parse_mode(argv)
     log(f"resolved {len(files)} input file(s); mode={mode.value}")
 
+    log("constructing QApplication...")
     app = QApplication(sys.argv)
+    log("QApplication ready")
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setOrganizationDomain(ORG_DOMAIN)
     app.setApplicationVersion(APP_VERSION)
+    log("app metadata set")
 
     icon_path = _resolve_icon()
+    log(f"icon_path={icon_path}")
     app_icon = QIcon(str(icon_path)) if icon_path is not None else None
     if app_icon is not None:
         app.setWindowIcon(app_icon)
+    log("window icon set")
 
     # Gate the rest of the app on first-run Terms acceptance. The dialog
     # records the decision under user_data_dir; subsequent launches skip
     # it instantly. If the user declines, we exit with code 0 (no error,
     # but no work performed).
+    log("checking TERMS acceptance...")
     if not ensure_terms_accepted(icon=app_icon):
+        log("TERMS not accepted, exiting")
         return 0
+    log("TERMS accepted (or pre-recorded)")
 
     # macOS first-launch: auto-register the Finder Quick Action so the
     # user gets right-click → Quick Actions → Create Transcription
@@ -177,18 +185,24 @@ def main(argv: list[str] | None = None) -> int:
     # idempotent (subsequent launches skip via a flag file). Failure is
     # silent — the .app still works, only the right-click entry is
     # missing.
+    log("install_quick_action()...")
     install_quick_action()
+    log("install_quick_action returned")
 
     open_filter = _FileOpenFilter()
     app.installEventFilter(open_filter)
+    log("file open filter installed")
 
+    log("constructing MainWindow...")
     window = MainWindow(
         initial_files=files,
         icon_path=icon_path,
         initial_mode=mode,
     )
     open_filter.attach(window)
+    log("MainWindow constructed; showing")
     window.show()
+    log("entering Qt event loop")
     return app.exec()
 
 

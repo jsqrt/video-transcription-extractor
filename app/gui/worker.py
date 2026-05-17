@@ -137,8 +137,15 @@ class TranscriptionWorker(QObject):
     job_finished = Signal(int, str)  # job_id, status name
     queue_drained = Signal()
 
-    def __init__(self, parent: Optional[QObject] = None) -> None:
-        super().__init__(parent)
+    def __init__(self) -> None:
+        # IMPORTANT: do NOT pass a parent QObject here. We immediately
+        # move ``self`` into a new QThread; if the worker also has a
+        # parent that lives on a different thread, Qt prints
+        # "QObject::moveToThread: Current parent is in a different
+        # thread" and the signal-slot delivery to the main thread can
+        # stall (causing Windows DWM to flag the main window as
+        # "Not Responding" even though the event loop is running).
+        super().__init__(None)
         self._jobs: list[Job] = []
         self._next_id = 1
         self._lock = threading.Lock()

@@ -57,16 +57,25 @@ class FasterWhisperProvider:
     def _configure_cuda_runtime(self) -> None:
         """Best-effort CUDA shared-library discovery on Windows and Linux.
 
-        In frozen builds (PyInstaller), we skip scanning ``sys.prefix`` for
-        NVIDIA wheels: an attacker with write access to the install dir
-        could plant a malicious ``cublas.dll`` under
-        ``site-packages/nvidia/`` and have us prepend it to PATH. The
-        bundled binary ships its own CUDA libs in the bundle root, which
-        the OS loader finds via the binary's own search path.
+        Two modes:
+
+        * Frozen build (PyInstaller): only the bundle's own
+          ``_internal/nvidia/<sub>/bin/`` directories are added to the
+          DLL search path. We intentionally do NOT scan ``sys.prefix``,
+          which in a PyInstaller layout points at the bundle root and
+          would let an attacker with write access to a sibling folder
+          plant a fake ``cublas.dll``.
+        * Dev build (running from a venv): full scan via
+          ``_cuda_library_candidates`` covers wheels installed in
+          ``site-packages/nvidia/``.
+
+        Without this, ``CTranslate2`` cannot ``LoadLibrary("cublas64_12.dll")``
+        from the bundled NVIDIA wheel and silently falls back to CPU.
         """
         if sys.platform == "darwin":
             return
         if getattr(sys, "frozen", False):
+            self._register_bundled_cuda_dirs()
             return
         candidates = self._cuda_library_candidates()
         for candidate in candidates:
@@ -80,6 +89,45 @@ class FasterWhisperProvider:
                 self._prepend_path_env("PATH", resolved)
             else:
                 self._prepend_path_env("LD_LIBRARY_PATH", resolved)
+
+    def _register_bundled_cuda_dirs(self) -> None:
+        """Register the frozen bundle's own CUDA wheel ``bin/`` dirs.
+
+        PyInstaller --onedir places ``nvidia-cublas-cu12`` and
+        ``nvidia-cudnn-cu12`` wheels under
+        ``<bundle>/_internal/nvidia/<pkg>/``. The DLLs live in the
+        ``bin/`` subdirectory of each. Windows' ``LoadLibrary`` only
+        searches the launcher's own directory plus system paths by
+        default — we have to opt them in explicitly via
+        ``os.add_dll_directory``. Safe because we only scan paths
+        inside the install root, never user-writable locations.
+        """
+        bundle_root = Path(sys.executable).resolve().parent
+        # In --onedir, deps live under _internal/. In --onefile they
+        # are extracted to sys._MEIPASS. Handle both for completeness.
+        roots = [bundle_root / "_internal", bundle_root]
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            roots.insert(0, Path(meipass))
+
+        for root in roots:
+            nvidia_dir = root / "nvidia"
+            if not nvidia_dir.is_dir():
+                continue
+            for sub in nvidia_dir.iterdir():
+                bin_dir = sub / "bin"
+                if not bin_dir.is_dir():
+                    continue
+                resolved = str(bin_dir.resolve())
+                if hasattr(os, "add_dll_directory") and os.name == "nt":
+                    try:
+                        os.add_dll_directory(resolved)
+                    except OSError:
+                        pass
+                if os.name == "nt":
+                    self._prepend_path_env("PATH", resolved)
+                else:
+                    self._prepend_path_env("LD_LIBRARY_PATH", resolved)
 
     def _cuda_library_candidates(self) -> list[Path]:
         seen: set[str] = set()

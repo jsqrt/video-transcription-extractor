@@ -1,5 +1,9 @@
 """First-launch Terms of Use acceptance gate.
 
+Logging note: every non-trivial branch here writes a line to the file
+log so we can localize hangs/crashes without a debugger.
+
+
 Shows a modal dialog with the bundled TERMS.md on first launch. The user
 must explicitly accept before any media file is processed. Acceptance is
 recorded in a small flag file under the per-user data directory, keyed
@@ -34,6 +38,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.gui.app_logger import log as _file_log
 from app.gui.model_manager import user_data_dir
 
 TERMS_VERSION = "v1"
@@ -106,7 +111,18 @@ class TermsDialog(QDialog):
 
         self._viewer = QTextBrowser()
         self._viewer.setOpenExternalLinks(False)
-        self._viewer.setMarkdown(terms_text)
+        # ``QTextBrowser.setMarkdown`` has historically hung Qt 6 main
+        # thread on certain inputs (notably markdown tables, which we
+        # have in TERMS.md). Try it first for the pretty rendering;
+        # silently fall back to plain text on ANY failure so a
+        # malformed-document never bricks the app.
+        _file_log("TermsDialog: setMarkdown begin")
+        try:
+            self._viewer.setMarkdown(terms_text)
+            _file_log("TermsDialog: setMarkdown ok")
+        except Exception as exc:
+            _file_log(f"TermsDialog: setMarkdown failed ({exc}); using plain text", level="WARN")
+            self._viewer.setPlainText(terms_text)
         layout.addWidget(self._viewer, stretch=1)
 
         self._checkbox = QCheckBox(
@@ -138,10 +154,13 @@ def ensure_terms_accepted(icon: Optional[QIcon] = None) -> bool:
     QDialog parented to the current QApplication.
     """
     if has_accepted_terms():
+        _file_log("TERMS already accepted; skipping modal")
         return True
+    _file_log("TERMS flag missing; resolving TERMS file…")
 
     terms_path = _resolve_terms_file()
     if terms_path is None:
+        _file_log("TERMS file missing from install", level="ERROR")
         # Fallback: if we somehow shipped without TERMS.md, fail closed
         # rather than silently continuing.
         from PySide6.QtWidgets import QMessageBox
@@ -154,14 +173,19 @@ def ensure_terms_accepted(icon: Optional[QIcon] = None) -> bool:
         )
         return False
 
+    _file_log(f"reading TERMS from {terms_path}")
     text = terms_path.read_text(encoding="utf-8")
+    _file_log(f"TERMS loaded: {len(text)} chars; constructing dialog")
     # Ensure QApplication exists — needed when this is called from main()
     # before the main window is constructed.
     if QApplication.instance() is None:
         QApplication([])
 
     dialog = TermsDialog(text, icon=icon)
-    if dialog.exec() == QDialog.Accepted:
+    _file_log("TermsDialog: exec()")
+    result = dialog.exec()
+    _file_log(f"TermsDialog: returned {result}")
+    if result == QDialog.Accepted:
         record_acceptance()
         return True
     return False

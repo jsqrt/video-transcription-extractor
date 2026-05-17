@@ -32,6 +32,22 @@ _LOG_PATH: Path | None = None
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MB — plenty for any single session
 
 
+def _redirect_stdio() -> None:
+    """Send stdout/stderr to per-user files so they survive --windowed."""
+    try:
+        target_dir = user_data_dir()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # line-buffered = updates as soon as Qt writes a warning.
+        sys.stdout = open(target_dir / "stdout.txt", "a", encoding="utf-8", buffering=1)
+        sys.stderr = open(target_dir / "stderr.txt", "a", encoding="utf-8", buffering=1)
+        sys.stdout.write(f"\n--- session {datetime.datetime.now().isoformat(timespec='seconds')} ---\n")
+        sys.stderr.write(f"\n--- session {datetime.datetime.now().isoformat(timespec='seconds')} ---\n")
+    except OSError:
+        # Frozen bundles on some sandbox configurations cannot replace
+        # stdio; tolerate that — log.txt is still being written.
+        pass
+
+
 def log_path() -> Path:
     if _LOG_PATH is None:
         return user_data_dir() / "log.txt"
@@ -75,6 +91,12 @@ def install_global_logger() -> Path:
     so uncaught exceptions also land on disk. Returns the log path."""
     global _LOG_PATH
     _LOG_PATH = user_data_dir() / "log.txt"
+
+    # PyInstaller's --windowed build detaches stdout/stderr to NUL on
+    # Windows / /dev/null on macOS. Redirect them to files so Qt's
+    # internal warnings (qDebug, qWarning, missing plugin diagnostics,
+    # platform-plugin failures) are recoverable.
+    _redirect_stdio()
 
     log("==== Describely starting ====")
     log(f"python={sys.version.split()[0]} platform={sys.platform}")

@@ -89,6 +89,12 @@ _HEAVY_PACKAGES = (
     "huggingface_hub",
     "onnxruntime",
     "av",
+    # CUDA runtime — present on Windows/Linux x86_64 only. collect_all()
+    # tolerates a missing import (see the try/except below), so macOS /
+    # ARM builds will simply skip these and produce a CPU-only bundle.
+    "nvidia",
+    "nvidia.cublas",
+    "nvidia.cudnn",
 )
 _collected_hidden: list[str] = []
 for _pkg in _HEAVY_PACKAGES:
