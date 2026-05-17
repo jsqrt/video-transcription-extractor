@@ -64,10 +64,11 @@ if [ ! -d "$APP" ]; then
   osascript -e 'display alert "Describely not found" message "Install it into /Applications first."'
   exit 1
 fi
-# `open -a APP file1 file2 ...` delivers each path to the Qt app via
-# QFileOpenEvent. -F (fresh) is omitted so an already-running window picks
-# up the new files without re-launching.
-open -a "$APP" "$@"
+# `open -a APP --args ...` passes the rest as argv to the launched
+# binary. Describely.gui parses --mode and treats the remaining
+# tokens as input files (they don't reach QFileOpenEvent in this
+# code path, but _expand_args in __main__.py picks them up).
+open -a "$APP" --args --mode __MODE__ "$@"
 </string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>

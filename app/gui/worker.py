@@ -17,6 +17,7 @@ from typing import Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from app.gui.app_logger import log as _file_log
 from app.gui.model_manager import embedded_model_name, find_embedded_model_path
 from app.models.types import SummaryOptions, TranscribeOptions
 from app.providers.faster_whisper_provider import FasterWhisperProvider
@@ -36,6 +37,14 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class JobMode(str, Enum):
+    """What artifacts to produce for a single job."""
+
+    BOTH = "both"             # .clean.md + .summary.md
+    TRANSCRIPTION = "transcription"  # .clean.md only
+    SUMMARY = "summary"       # .summary.md only
+
+
 @dataclass
 class Job:
     job_id: int
@@ -46,6 +55,7 @@ class Job:
     output_dir: Optional[Path] = None
     transcript_path: Optional[Path] = None
     summary_path: Optional[Path] = None
+    mode: JobMode = JobMode.BOTH
     cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
@@ -157,11 +167,15 @@ class TranscriptionWorker(QObject):
         self._thread.quit()
         self._thread.wait(5000)
 
-    def add_files(self, paths: list[Path]) -> list[Job]:
+    def add_files(
+        self,
+        paths: list[Path],
+        mode: JobMode = JobMode.BOTH,
+    ) -> list[Job]:
         added: list[Job] = []
         with self._lock:
             for p in paths:
-                job = Job(job_id=self._next_id, file_path=Path(p))
+                job = Job(job_id=self._next_id, file_path=Path(p), mode=mode)
                 self._next_id += 1
                 self._jobs.append(job)
                 added.append(job)
@@ -222,21 +236,28 @@ class TranscriptionWorker(QObject):
 
     def _process_job(self, job: Job) -> None:
         self.job_started.emit(job.job_id)
+        _file_log(f"job {job.job_id}: started ({job.file_path})")
 
         def _log(msg: str) -> None:
             self.job_log.emit(job.job_id, msg)
+            _file_log(f"job {job.job_id}: {msg}")
 
         def _progress(fraction: float) -> None:
             job.progress = max(0.0, min(1.0, fraction))
             self.job_progress.emit(job.job_id, job.progress)
 
         try:
+            # Map the job mode onto the pipeline knobs.
+            summary_backend = "ollama" if job.mode != JobMode.TRANSCRIPTION else "none"
+            write_clean = job.mode != JobMode.SUMMARY
+            write_summary = job.mode != JobMode.TRANSCRIPTION
+
             options = TranscribeOptions(
                 profile="best",
                 language=None,  # auto-detect
                 timeout_sec=0,
                 include_chapters=True,
-                summary=SummaryOptions(mode="ollama"),
+                summary=SummaryOptions(mode=summary_backend),
             )
             # Prefer the bundled flat-layout model dir when present; fall
             # back to the short name "large-v3" only in dev mode without
@@ -253,8 +274,8 @@ class TranscriptionWorker(QObject):
                 output_dir=None,
                 title_style="keywords",
                 clean_mode="rule-based",
-                write_clean_file=True,
-                write_summary_file=True,
+                write_clean_file=write_clean,
+                write_summary_file=write_summary,
                 extractor=self._services.extractor(),
                 transcriber=self._services.transcriber(_log),
                 summarizer=self._services.summarizer(_log),
@@ -281,5 +302,10 @@ class TranscriptionWorker(QObject):
                 # Keep the traceback in the logs for debugging, but the UI
                 # only shows the message.
                 _log(traceback.format_exc())
+                _file_log(
+                    f"job {job.job_id}: traceback:\n{traceback.format_exc()}",
+                    level="ERROR",
+                )
 
+        _file_log(f"job {job.job_id}: finished status={job.status.value}")
         self.job_finished.emit(job.job_id, job.status.value)

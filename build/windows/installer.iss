@@ -70,48 +70,116 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Registry]
-; Right-click handler for every supported media extension. Per-user
-; (HKCU), so no admin rights needed. The exe receives "%1" as its first
-; argv element; main_window picks it up.
+; Two shell verbs per supported media extension:
+;   * DescribelyCreateTranscription — writes <name>.clean.md only.
+;   * DescribelyCreateSummary       — writes <name>.summary.md only.
+; Both pass --mode <value> "%1" so the GUI picks the right pipeline
+; switch. Per-user (HKCU) → no admin rights needed.
+
+; ---- .mp4 ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .mkv ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .mov ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .avi ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .webm ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .m4v ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .mp3 ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.mp3\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .wav ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.wav\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .m4a ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.m4a\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
+; ---- .flac ----
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateTranscription"; ValueType: string; ValueData: "Create transcription"; Tasks: contextmenu; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateTranscription"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateTranscription\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode transcription ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateSummary"; ValueType: string; ValueData: "Create summary"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateSummary"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#AppExeName}"",0"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.flac\shell\DescribelyCreateSummary\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" --mode summary ""%1"""; Tasks: contextmenu; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Reaching ssPostInstall means the user accepted the LicenseFile (TERMS).
+// Record that acceptance in the per-user data directory so the GUI does
+// not show the same modal a second time on first launch.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  DataDir, FlagPath: string;
+  Lines: TStringList;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    DataDir := ExpandConstant('{userappdata}\Describely');
+    ForceDirectories(DataDir);
+    FlagPath := DataDir + '\terms-accepted-v1.flag';
+    Lines := TStringList.Create;
+    try
+      Lines.Add('Describely TERMS accepted via installer.');
+      Lines.Add('version=v1');
+      Lines.SaveToFile(FlagPath);
+    finally
+      Lines.Free;
+    end;
+  end;
+end;

@@ -1,11 +1,55 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from app.models.types import AudioExtractionError
+
+
+def _bundled_ffmpeg_search_dirs() -> list[Path]:
+    """Where might a bundled ffmpeg live in a frozen build?
+
+    PyInstaller puts ``imageio_ffmpeg`` and its ``binaries/`` folder
+    under ``_internal/`` (on --onedir) or under ``sys._MEIPASS`` (on
+    --onefile / first-time extraction). The plain
+    ``imageio_ffmpeg.get_ffmpeg_exe()`` import path can break in those
+    layouts because the wheel's ``__file__`` resolution lands on a
+    different parent than the binaries.
+    """
+    roots: list[Path] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(Path(meipass))
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        roots += [exe_dir, exe_dir / "_internal", exe_dir.parent / "Resources"]
+    dirs: list[Path] = []
+    for r in roots:
+        dirs.append(r / "imageio_ffmpeg" / "binaries")
+    return dirs
+
+
+def _find_bundled_ffmpeg() -> str | None:
+    """Look for an ``ffmpeg*`` binary inside the frozen bundle."""
+    for d in _bundled_ffmpeg_search_dirs():
+        if not d.is_dir():
+            continue
+        for entry in d.iterdir():
+            name = entry.name.lower()
+            if not entry.is_file():
+                continue
+            if not name.startswith("ffmpeg"):
+                continue
+            # On Windows the wheel ships ffmpeg-win-x86_64-vX.Y.exe;
+            # on macOS / Linux it's an unsuffixed Mach-O / ELF file.
+            if sys.platform == "win32" and not name.endswith(".exe"):
+                continue
+            return str(entry)
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -14,11 +58,22 @@ def _resolve_ffmpeg_binary() -> str | None:
 
     Resolution order:
 
-    1. ``imageio_ffmpeg.get_ffmpeg_exe()`` — packaged with the GUI build so
-       end users get a working binary without installing anything.
-    2. ``shutil.which("ffmpeg")`` — system ffmpeg for CLI-only and dev
-       environments where imageio-ffmpeg is not installed.
+    1. Explicit override via ``IMAGEIO_FFMPEG_EXE`` env var. Useful for
+       advanced users who want a system ffmpeg even in a frozen build.
+    2. PyInstaller bundle search — we look in the same locations the
+       PyInstaller hook copies ``imageio_ffmpeg/binaries/`` to.
+    3. ``imageio_ffmpeg.get_ffmpeg_exe()`` — the official API, works
+       reliably in dev envs and most frozen layouts.
+    4. ``shutil.which("ffmpeg")`` — system ffmpeg from PATH.
     """
+    override = os.environ.get("IMAGEIO_FFMPEG_EXE")
+    if override and Path(override).is_file():
+        return override
+
+    bundled = _find_bundled_ffmpeg()
+    if bundled:
+        return bundled
+
     try:
         import imageio_ffmpeg  # noqa: WPS433 (imported here by design)
 

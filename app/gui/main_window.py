@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.gui.worker import Job, JobStatus, TranscriptionWorker
+from app.gui.worker import Job, JobMode, JobStatus, TranscriptionWorker
 
 
 _STATUS_LABEL = {
@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         self,
         initial_files: Optional[list[Path]] = None,
         icon_path: Optional[Path] = None,
+        initial_mode: JobMode = JobMode.BOTH,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Describely")
@@ -131,13 +132,16 @@ class MainWindow(QMainWindow):
 
         self._worker = TranscriptionWorker(self)
         self._rows: dict[int, _JobRow] = {}
+        # Mode used for files added via toolbar buttons / drag-and-drop.
+        # The right-click flow forces a mode via --mode on argv.
+        self._current_mode: JobMode = initial_mode
 
         self._build_ui()
         self._connect_signals()
         self._worker.start()
 
         if initial_files:
-            self.add_files(initial_files)
+            self.add_files(initial_files, mode=initial_mode)
 
     # ---- UI construction --------------------------------------------------
 
@@ -225,11 +229,15 @@ class MainWindow(QMainWindow):
 
     # ---- Public --------------------------------------------------------
 
-    def add_files(self, paths: list[Path]) -> None:
+    def add_files(
+        self,
+        paths: list[Path],
+        mode: Optional[JobMode] = None,
+    ) -> None:
         cleaned = [Path(p).expanduser().resolve() for p in paths if Path(p).exists()]
         if not cleaned:
             return
-        jobs = self._worker.add_files(cleaned)
+        jobs = self._worker.add_files(cleaned, mode=mode or self._current_mode)
         for job in jobs:
             row = _JobRow(self._tree, job)
             self._rows[job.job_id] = row

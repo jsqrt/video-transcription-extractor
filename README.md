@@ -62,17 +62,25 @@ xattr -dr com.apple.quarantine "/Volumes/Describely/Install-QuickAction.command"
 
 1. Select one or more video / audio files in Explorer (Windows) or
    Finder (macOS).
-2. Right-click → **"Create transcription"** (on macOS, under the
-   Quick Actions submenu; you may need to enable it in System
-   Settings → Extensions → Finder).
-3. A window opens with a queue. Each file shows:
+2. Right-click → choose one of:
+   * **Create transcription** — writes `<name>.clean.md` only.
+   * **Create summary** — writes `<name>.summary.md` only.
+3. On macOS, both items live under the Quick Actions submenu (you may
+   need to enable them in System Settings → Privacy & Security →
+   Extensions → Finder).
+4. **Windows 11 note:** the new compact context menu hides legacy shell
+   verbs under **"Show more options"** (or press **Shift+F10**). The
+   two Describely entries appear there, not in the top-level menu. The
+   only way to put them in the new menu is to ship Describely as an
+   MSIX package, which is on the v1.1 backlog.
+5. A queue window opens. Each file shows:
    * status (`Queued` / `Processing…` / `Done` / `Cancelled` /
      `Failed`),
    * a progress bar,
    * a `Cancel` button (this file only).
-4. The toolbar has **"Cancel All"** (stops the current job and drains
+6. The toolbar has **"Cancel All"** (stops the current job and drains
    the queue).
-5. Double-click any finished row to reveal `.clean.md` in
+7. Double-click any finished row to reveal the output in
    Finder / Explorer.
 
 **2. Drag-and-drop:**

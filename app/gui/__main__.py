@@ -25,8 +25,11 @@ from PySide6.QtCore import QEvent, QObject
 from PySide6.QtGui import QFileOpenEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
+from app.gui.app_logger import install_global_logger, log
 from app.gui.first_run import ensure_terms_accepted
+from app.gui.macos_integration import install_quick_action
 from app.gui.main_window import MainWindow
+from app.gui.worker import JobMode
 
 APP_NAME = "Describely"
 ORG_NAME = "Describely"
@@ -34,11 +37,43 @@ ORG_DOMAIN = "describely.app"
 APP_VERSION = "1.0.0"
 
 
+_MODE_FLAG = "--mode"
+_VALID_MODES = {"both", "transcription", "summary"}
+
+
+def _parse_mode(argv: list[str]) -> JobMode:
+    """Pull ``--mode VALUE`` (or ``--mode=VALUE``) out of argv.
+
+    Default is BOTH so right-click "Create transcription" produces both
+    artifacts by default — matches user expectations from the older
+    flow. The shell verbs registered by Inno Setup / the macOS
+    workflow set this explicitly per menu item.
+    """
+    for i, token in enumerate(argv):
+        value: str | None = None
+        if token == _MODE_FLAG and i + 1 < len(argv):
+            value = argv[i + 1]
+        elif token.startswith(f"{_MODE_FLAG}="):
+            value = token.split("=", 1)[1]
+        if value is not None and value.lower() in _VALID_MODES:
+            return JobMode(value.lower())
+    return JobMode.BOTH
+
+
 def _expand_args(argv: list[str]) -> list[Path]:
     out: list[Path] = []
     seen: set[Path] = set()
-    for token in argv:
-        if not token or token.startswith("-"):
+    skip_next = False
+    for i, token in enumerate(argv):
+        if skip_next:
+            skip_next = False
+            continue
+        if not token:
+            continue
+        if token == _MODE_FLAG:
+            skip_next = True  # the next token is the mode value
+            continue
+        if token.startswith("-"):
             continue
         try:
             p = Path(token).expanduser().resolve()
@@ -105,7 +140,17 @@ class _FileOpenFilter(QObject):
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+
+    # File-logger first — captures everything from this point onward,
+    # including stdlib warnings about model loading and any uncaught
+    # exception from the QThread worker. Survives ``--windowed`` builds
+    # that discard stdout/stderr.
+    log_file = install_global_logger()
+    log(f"argv={argv}")
+
     files = _expand_args(argv)
+    mode = _parse_mode(argv)
+    log(f"resolved {len(files)} input file(s); mode={mode.value}")
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -126,10 +171,22 @@ def main(argv: list[str] | None = None) -> int:
     if not ensure_terms_accepted(icon=app_icon):
         return 0
 
+    # macOS first-launch: auto-register the Finder Quick Action so the
+    # user gets right-click → Quick Actions → Create Transcription
+    # without running a separate installer. No-op on Win / Linux and
+    # idempotent (subsequent launches skip via a flag file). Failure is
+    # silent — the .app still works, only the right-click entry is
+    # missing.
+    install_quick_action()
+
     open_filter = _FileOpenFilter()
     app.installEventFilter(open_filter)
 
-    window = MainWindow(initial_files=files, icon_path=icon_path)
+    window = MainWindow(
+        initial_files=files,
+        icon_path=icon_path,
+        initial_mode=mode,
+    )
     open_filter.attach(window)
     window.show()
     return app.exec()
