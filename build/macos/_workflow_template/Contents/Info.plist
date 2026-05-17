@@ -8,7 +8,7 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Create Transcription</string>
+				<string>__MENU_LABEL__</string>
 			</dict>
 			<key>NSMessage</key>
 			<string>runWorkflowAsService</string>

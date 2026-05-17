@@ -78,14 +78,13 @@ mkdir -p "$OUT_DIR"
 DMG_PATH="$OUT_DIR/Describely-1.0.0.dmg"
 rm -f "$DMG_PATH"
 
-# Stage a folder that holds .app + an Applications symlink + the Quick
-# Action installer + the Terms of Use.
+# Stage a folder that holds .app + an Applications symlink + Terms.
+# The Quick Action workflows are now registered automatically by the
+# .app on first launch (see app/gui/macos_integration.py); no manual
+# Install-QuickAction.command is required in the DMG.
 STAGE="$(mktemp -d -t describely-dmg)"
 trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP_BUNDLE" "$STAGE/"
-cp "$PROJECT_ROOT/build/macos/Install-QuickAction.command" "$STAGE/"
-chmod +x "$STAGE/Install-QuickAction.command"
-cp -R "$PROJECT_ROOT/build/macos/CreateTranscription.workflow" "$STAGE/"
 cp "$PROJECT_ROOT/TERMS.md" "$STAGE/TERMS.md"
 
 echo "==> Building DMG"
@@ -95,7 +94,6 @@ create-dmg \
   --icon-size 96 \
   --icon "Describely.app" 140 180 \
   --app-drop-link 420 180 \
-  --icon "Install-QuickAction.command" 280 320 \
   "$DMG_PATH" \
   "$STAGE"
 

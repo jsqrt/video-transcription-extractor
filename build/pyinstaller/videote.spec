@@ -60,6 +60,13 @@ TERMS = ROOT / "TERMS.md"
 if TERMS.exists():
     datas.append((str(TERMS), "."))
 
+# macOS Quick Action template — Describely.app uses it to materialize
+# Finder right-click menu entries on first launch (see
+# app/gui/macos_integration.py). Bundle the whole template directory.
+WORKFLOW_TEMPLATE = ROOT / "build" / "macos" / "_workflow_template"
+if sys.platform == "darwin" and WORKFLOW_TEMPLATE.is_dir():
+    datas.append((str(WORKFLOW_TEMPLATE), "_workflow_template"))
+
 # faster_whisper and ctranslate2 ship binary blobs that PyInstaller's
 # import analysis misses on some platforms — pull them in explicitly.
 datas += collect_data_files("faster_whisper")
