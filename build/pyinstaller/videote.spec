@@ -45,6 +45,18 @@ APP_VERSION = "1.0.0"
 BUNDLE_ID = "com.describely.app"
 ENTRY = str(ROOT / "app" / "gui" / "__main__.py")
 
+# macOS target architecture. ``universal2`` ships one bundle that runs
+# natively on both Intel and Apple Silicon (PyInstaller merges per-arch
+# native libs via ``lipo``). Override with ``VTE_MAC_ARCH=arm64`` or
+# ``=x86_64`` to build a single-arch bundle (smaller, useful for CI).
+# Ignored on Windows / Linux.
+MAC_TARGET_ARCH = os.environ.get("VTE_MAC_ARCH", "universal2").strip() or None
+if MAC_TARGET_ARCH not in (None, "universal2", "arm64", "x86_64"):
+    raise SystemExit(
+        f"Invalid VTE_MAC_ARCH={MAC_TARGET_ARCH!r}; expected one of "
+        "universal2, arm64, x86_64."
+    )
+
 # ---- Data files -----------------------------------------------------------
 
 # Ship the entire large-v3 directory next to the binary under models/.
@@ -179,6 +191,7 @@ exe = EXE(
     upx=False,
     console=False,
     icon=str(ICON_WIN) if (is_windows and ICON_WIN.exists()) else None,
+    target_arch=MAC_TARGET_ARCH if is_macos else None,
 )
 
 coll = COLLECT(

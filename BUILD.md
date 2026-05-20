@@ -163,23 +163,50 @@ The installer:
 
 ## macOS build
 
-```
-./build/macos/build.sh
-```
+We ship **two single-arch installers**, one per Mac architecture:
 
-Steps performed:
+| Build host           | Command                       | Output                                  |
+|----------------------|-------------------------------|-----------------------------------------|
+| Apple Silicon (M1+)  | `./build/macos/build.sh`      | `Describely-1.0.0-arm64.pkg`            |
+| Intel Mac            | `./build/macos/build.sh`      | `Describely-1.0.0-x86_64.pkg`           |
 
-1. Verifies `models/large-v3/`.
-2. `pip install -r requirements-gui.txt` + PyInstaller.
-3. PyInstaller produces `dist/Describely.app`.
-4. Ad-hoc `codesign` so Gatekeeper accepts the bundle on the build
+With no env vars set, the script defaults `VTE_MAC_ARCH` to
+`$(uname -m)`, so you run the same command on each Mac. Each `.pkg`
+carries a `hostArchitectures` filter so the installer wizard refuses
+the wrong-arch download on the user side.
+
+Why two builds and not one fat `.pkg`: in practice the wheels for
+`ctranslate2`, `pyav`, `tokenizers`, `llama-cpp-python`, and
+`onnxruntime` ship per-arch — `pip` installs only one slice per venv,
+so PyInstaller cannot produce a universal2 binary without manual wheel
+merging. Two single-arch installers are the reliable shipping path.
+
+The script supports `VTE_MAC_ARCH=universal2` for future use once
+upstream wheels catch up; the post-build arch check will currently
+reject it.
+
+Single-machine fallback for the x86_64 build (Rosetta on Apple
+Silicon): see RELEASE.md §5.2.
+
+Steps the script performs on each run:
+
+1. Sanity-checks host vs target arch and the Python interpreter slice.
+2. Verifies `models/large-v3/`.
+3. `pip install -r requirements-gui.txt` + PyInstaller.
+4. PyInstaller runs with `target_arch=$VTE_MAC_ARCH` → `dist/Describely.app`.
+5. Post-build `file -L` check — aborts if the produced binary doesn't
+   contain the requested architecture.
+6. Ad-hoc `codesign` so Gatekeeper accepts the bundle on the build
    machine (end users still see the first-launch warning unless you
    replace this with a notarized signature — see below).
-5. `pkgbuild` wraps the .app + the postinstall script into a
+7. `pkgbuild` wraps the .app + the postinstall script into a
    component .pkg.
-6. `productbuild` wraps the component into a distribution installer
+8. Renders `Distribution.xml` from `Distribution.xml.in`, substituting
+   `@HOST_ARCHITECTURES@` so the installer wizard rejects the
+   wrong-arch host.
+9. `productbuild` wraps the component into a distribution installer
    with Welcome / License / Conclusion screens at
-   `build/macos/out/Describely-1.0.0.pkg`.
+   `build/macos/out/Describely-1.0.0-${VTE_MAC_ARCH}.pkg`.
 
 App only (skip installer):
 

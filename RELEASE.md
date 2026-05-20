@@ -1,18 +1,27 @@
 # Cutting your first Describely release (v1.0.0)
 
-A start-to-finish guide for shipping `Describely-Setup-1.0.0.exe`
-(Windows) and `Describely-1.0.0.dmg` (macOS) to end users.
+A start-to-finish guide for shipping
+`Describely-Setup-1.0.0.exe` (Windows),
+`Describely-1.0.0-arm64.pkg` (Apple Silicon macOS), and
+`Describely-1.0.0-x86_64.pkg` (Intel macOS) to end users.
 
-You need access to **two machines** for a full release:
+You need access to **three machines** for a full release:
 
-* A Windows 10/11 x64 machine.
-* A macOS 12+ machine — ideally one Apple Silicon AND one Intel, but a
-  single Apple Silicon build runs on Apple Silicon only and an Intel
-  build runs on both Intel and Apple Silicon (via Rosetta) at a perf
-  cost.
+* A Windows 10/11 x64 machine (runs identically on Intel and AMD CPUs).
+* An **Apple Silicon** macOS 12+ machine (M-series).
+* An **Intel** macOS 12+ machine.
 
-If you can only sign up for one DMG, build it on an Apple Silicon host
-and ship two DMGs over time (mark the Intel one "experimental").
+PyInstaller cannot truly cross-compile native Python deps between Mac
+architectures, so each `.pkg` must be built on a host matching its
+target arch. Each `.pkg`'s `Distribution.xml` carries a
+`hostArchitectures` filter, so users can't accidentally install the
+wrong one.
+
+> **Single-machine fallback** (Apple Silicon only): you can produce
+> the x86_64 build on an Apple Silicon Mac with Rosetta + an x86_64
+> Python venv — see §5.2 below. The output is identical to building
+> on an Intel host. Slower (~2-3× via Rosetta), so a real Intel Mac is
+> still the recommended path for shipping.
 
 ---
 
@@ -37,18 +46,27 @@ and ship two DMGs over time (mark the Intel one "experimental").
    pip install pillow cairosvg
    ```
 
-### macOS build host
+### macOS build host (do this on BOTH the arm64 and x86_64 Mac)
 
-1. Install **Python 3.11** via `brew install python@3.11` or python.org.
-   Verify `python3 -c "import platform; print(platform.machine())"`
-   returns `arm64` on Apple Silicon (not `x86_64`).
+1. Install **Python 3.11**. From python.org installer is fine on both
+   machines; `brew install python@3.11` also works (it installs an
+   arch-matching Python). Verify:
+   ```
+   python3 -c "import platform; print(platform.machine())"
+   ```
+   Output must match the host: `arm64` on Apple Silicon, `x86_64` on
+   Intel. If the venv reports the wrong arch, you've got a brew that
+   was originally installed on a different machine — start over.
+
 2. No extra tools — `pkgbuild` and `productbuild` ship with macOS.
-3. Create the venv:
+
+3. Create the venv with the matching Python:
    ```
    python3 -m venv .venv
    source .venv/bin/activate
    pip install -r requirements-gui.txt
    ```
+
 4. (Optional) `pip install pillow cairosvg` for .icns generation.
 
 ---
@@ -170,35 +188,100 @@ If anything is off, fix and rebuild before shipping.
 
 ---
 
-## 5. Build the macOS installer
+## 5. Build the macOS installers
 
-From a Terminal in the repo root, with the venv activated:
+You run the same script twice — once per Mac. The script reads
+`VTE_MAC_ARCH`; if you leave it unset, it defaults to the host arch
+(`uname -m`), so on each machine you can just run:
 
 ```
 ./build/macos/build.sh
 ```
 
-The script:
-1. Verifies `models/large-v3/` exists.
-2. Installs / updates build deps.
-3. Runs PyInstaller → `dist/Describely.app`.
-4. Ad-hoc codesigns the .app (lets Gatekeeper accept it on the build
-   machine — does NOT satisfy notarization).
-5. Runs `pkgbuild` → component package with the .app + postinstall
-   script.
-6. Runs `productbuild` → final distribution installer at
-   `build/macos/out/Describely-1.0.0.pkg`.
+…and get the correct `.pkg` for that host:
 
-Expected runtime: 10–20 minutes.
+| Host                 | Output                                  | hostArchitectures filter |
+|----------------------|------------------------------------------|--------------------------|
+| Apple Silicon (M1+)  | `build/macos/out/Describely-1.0.0-arm64.pkg`  | `arm64` |
+| Intel                | `build/macos/out/Describely-1.0.0-x86_64.pkg` | `x86_64` |
 
-### Verify the macOS build before shipping
+Each `.pkg` refuses installation on the wrong architecture (the
+installer wizard shows "Describely can't be installed on this
+computer."). This is intentional — a Rosetta-emulated Whisper on
+Apple Silicon would be 3-5× slower than the native arm64 path.
 
-On a **different** macOS machine (or a fresh user account):
+What the script does on each run:
+
+1. Reads `uname -m`, sets `VTE_MAC_ARCH` if you didn't.
+2. Sanity-checks host vs target combo (refuses arm64 build on Intel,
+   warns about x86_64 build on Apple Silicon — see §5.2).
+3. Verifies the Python interpreter contains the target slice using
+   `file -L`.
+4. Verifies `models/large-v3/` exists.
+5. Installs / updates build deps.
+6. Runs PyInstaller with `target_arch=$VTE_MAC_ARCH` →
+   `dist/Describely.app`.
+7. **Post-build arch check** — `file` against the main binary; aborts
+   if the produced bundle lacks the requested arch.
+8. Ad-hoc codesigns the .app.
+9. `pkgbuild` → component package.
+10. Renders `Distribution.xml` from `Distribution.xml.in` with
+    `@HOST_ARCHITECTURES@` filled in.
+11. `productbuild` → final `.pkg`.
+
+Expected runtime per build: 10–20 minutes.
+
+### 5.1 Verify each .pkg on a clean machine of the same arch
+
+For the arm64 build: install on a second Apple Silicon Mac (or fresh
+user account). For the x86_64 build: install on a second Intel Mac.
+Then walk through the §5.3 checklist below.
+
+To prove the arch filter works, also try installing the
+**wrong-arch** `.pkg` on each Mac — the installer should refuse with a
+clean error message before reaching the Welcome page. If it doesn't,
+the `hostArchitectures` substitution in `Distribution.xml.in` is
+broken; check the rendered XML emitted by the build (look at the
+script's tempdir output).
+
+### 5.2 Building x86_64 on Apple Silicon (Rosetta path)
+
+If your Intel Mac is unavailable, you can still ship the x86_64 `.pkg`
+from an Apple Silicon Mac. The bundle is binary-identical to a
+native-Intel-built one; the only cost is build time (~2-3× slower via
+Rosetta).
+
+```
+# One-time, on Apple Silicon:
+softwareupdate --install-rosetta --agree-to-license
+
+# Per build, in a fresh terminal:
+arch -x86_64 /bin/zsh
+# IMPORTANT: install Python from python.org using the x86_64 installer
+# (or use an existing x86_64 brew at /usr/local/bin/python3 — NOT the
+# arm64 brew at /opt/homebrew/bin/python3).
+/usr/local/bin/python3 -m venv .venv-x86_64
+source .venv-x86_64/bin/activate
+python -c "import platform; print(platform.machine())"   # must print x86_64
+pip install -r requirements-gui.txt
+
+VTE_MAC_ARCH=x86_64 ./build/macos/build.sh
+```
+
+The script's Python arch probe will yell if you accidentally used the
+arm64 Python under Rosetta — Rosetta doesn't change the Python binary
+itself, only the shell.
+
+### 5.3 Install-time verification checklist
+
+Run this on a Mac matching the arch of the `.pkg` you're testing —
+once for arm64, once for x86_64.
 
 1. Copy the `.pkg` over to `~/Downloads/`.
-2. If Gatekeeper says "damaged", clear the quarantine bit:
+2. If Gatekeeper says "damaged", clear the quarantine bit (substitute
+   the right filename for the arch you're testing):
    ```
-   xattr -dr com.apple.quarantine ~/Downloads/Describely-1.0.0.pkg
+   xattr -dr com.apple.quarantine ~/Downloads/Describely-1.0.0-arm64.pkg
    ```
 3. Double-click the `.pkg`. Walk through the installer:
    * **Welcome** screen — reads OK.
@@ -284,11 +367,15 @@ Add these to the release notes verbatim so users are not surprised:
 * **First launch is slow** — Whisper has to load ~3 GB of weights
   into memory once. Subsequent files in the same session reuse the
   loaded model.
-* **No GPU on macOS.** CTranslate2 uses optimized ARM CPU kernels;
-  expect ~0.5–1× real-time on M1 (8 GB RAM), 1–2× on M2 Pro / M3.
+* **No GPU on macOS for Whisper.** CTranslate2 has no Metal backend;
+  Whisper runs on optimized ARM CPU kernels. Expect ~0.5–1× real-time
+  on M1 (8 GB RAM), 1–2× on M2 Pro / M3. (LLM summary *does* use Metal
+  on Apple Silicon — that path is GPU-accelerated.) Bringing Whisper
+  to Metal requires swapping the ASR backend; tracked for v1.1.
 * **No GPU acceleration in the GUI on Windows** unless the user has a
   CUDA-capable NVIDIA card with CUDA 12 runtime installed. The CPU
-  fallback path always works.
+  fallback path always works on both Intel and AMD CPUs. AMD/Intel
+  **GPU** acceleration via Vulkan is tracked for v1.1.
 * **Ollama summary is opt-in.** If the user has not installed Ollama
   separately, summaries are generated by the offline extractive
   summarizer (less fluent, but factual).
@@ -312,9 +399,17 @@ Open issues for each item so they aren't lost:
 * **Model integrity check.** Add a `models/large-v3/SHA256SUMS` file,
   verified on first launch (defense-in-depth against tampered
   installer).
-* **Universal2 macOS build.** Use PyInstaller's `--target-arch
-  universal2` when on Apple Silicon to ship one DMG that runs natively
-  on both Intel and Apple Silicon, instead of two separate DMGs.
+* **GPU Whisper on Apple Silicon (Metal) and Windows AMD GPU
+  (Vulkan).** Requires swapping `faster-whisper`/CTranslate2 for
+  `whisper.cpp` (which supports CUDA + Metal + Vulkan in a single
+  backend). Significant scope — own provider, GGML model format,
+  per-backend QA matrix. See the Phase-2 plan in the development
+  thread for the breakdown.
+* **AMD GPU summary on Windows.** `llama-cpp-python` publishes Vulkan
+  wheels at https://abetlen.github.io/llama-cpp-python/whl/vulkan/ —
+  switching the Windows build script to use that index makes
+  summarization run on Radeon / Arc GPUs as well as NVIDIA. About half
+  a day of work + QA on real AMD hardware.
 * **Auto-update channel.** Probably overkill for a desktop tool that
   is launched on-demand; revisit if user feedback asks for it.
 
