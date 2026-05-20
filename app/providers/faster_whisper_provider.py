@@ -308,6 +308,24 @@ class FasterWhisperProvider:
             kwargs.update({"beam_size": 5, "best_of": 5, "temperature": 0.0})
         return kwargs
 
+    def release(self) -> None:
+        """Delete all cached Whisper models and free GPU memory.
+
+        Call this after transcription is complete so Ollama (or any other
+        process) can claim the VRAM for its own inference.
+        """
+        self._model_cache.clear()
+        # Ask Python to collect the now-unreferenced model objects immediately
+        # so ctranslate2 releases cuBLAS/cuDNN handles before we return.
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     # ---- Public API -------------------------------------------------------------
 
     def transcribe(

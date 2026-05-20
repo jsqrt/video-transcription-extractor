@@ -13,7 +13,9 @@
 #define AppPublisher "Describely"
 #define AppURL "https://describely.app"
 #define AppExeName "Describely.exe"
-#define BundleDir ProjectRoot + "\dist\Describely"
+#ifndef BundleDir
+  #define BundleDir ProjectRoot + "\dist\Describely"
+#endif
 #define OutDir ProjectRoot + "\build\windows\out"
 #define LicenseFile ProjectRoot + "\TERMS.md"
 #define IconFile ProjectRoot + "\build\assets\app.ico"

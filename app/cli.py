@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-clean-file",
         action="store_false",
         dest="clean_file",
-        help="Do not write the human-readable <name>.clean.md file.",
+        help="Do not write the human-readable <name>.transcription.md file.",
     )
     transcribe_parser.set_defaults(clean_file=True)
 
@@ -134,11 +134,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--clean-mode",
         default="rule-based",
         choices=_CLEAN_MODE_CHOICES,
-        help="Cleanup mode for <name>.clean.md. 'raw' = no cleanup (just "
+        help="Cleanup mode for <name>.transcription.md. 'raw' = no cleanup (just "
              "chapter formatting); 'rule-based' (default) = exact dedup + "
              "rolling-overlap dedup + sentence stitching + filler collapse; "
              "'llm' = rule-based pass + conservative LLM polish, validated "
              "by word-subsequence check (fails-safe to rule-based).",
+    )
+
+    transcribe_parser.add_argument(
+        "--diarize",
+        action="store_true",
+        help="Run speaker diarization (requires whisperx to be installed).",
     )
 
     transcribe_parser.add_argument(
@@ -358,6 +364,7 @@ def run_transcribe(args: argparse.Namespace) -> int:
         timeout_sec=args.timeout,
         model_cache_dir=args.model_cache_dir,
         include_chapters=args.include_chapters,
+        diarize=bool(args.diarize),
         summary=summary_options,
     )
 

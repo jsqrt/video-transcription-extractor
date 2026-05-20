@@ -107,7 +107,7 @@ class RunPipelineTest(unittest.TestCase):
             self.assertIsNotNone(result.transcript_path)
             assert result.transcript_path is not None
             self.assertTrue(result.transcript_path.exists())
-            self.assertEqual(result.transcript_path.name, "myclip.clean.md")
+            self.assertEqual(result.transcript_path.name, "myclip.transcription.md")
 
             # summary.md exists.
             self.assertIsNotNone(result.summary_path)
@@ -184,7 +184,7 @@ class RunPipelineTest(unittest.TestCase):
                 summarizer=summarizer,
             )
         self.assertIsNone(result.transcript_path)
-        self.assertFalse((root / "clip.clean.md").exists())
+        self.assertFalse((root / "clip.transcription.md").exists())
 
     def test_summary_mode_none_produces_no_summary(self) -> None:
         transcript = _make_transcript(

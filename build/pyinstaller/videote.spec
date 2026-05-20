@@ -67,6 +67,15 @@ WORKFLOW_TEMPLATE = ROOT / "build" / "macos" / "_workflow_template"
 if sys.platform == "darwin" and WORKFLOW_TEMPLATE.is_dir():
     datas.append((str(WORKFLOW_TEMPLATE), "_workflow_template"))
 
+# Embedded summarization LLM (GGUF). Loaded by llama-cpp-python at
+# runtime; see app/providers/llama_cpp_provider.py. The GGUF is a
+# single ~2 GB file under models/llm/. Skipped silently if the
+# maintainer didn't run scripts/fetch_llm.py — the runtime then falls
+# back to Ollama / extractive.
+LLM_DIR = ROOT / "models" / "llm"
+if LLM_DIR.is_dir():
+    datas.append((str(LLM_DIR), "models/llm"))
+
 # imageio_ffmpeg packages an ffmpeg binary inside the wheel — pull it
 # in as data so the GUI bundle does not depend on a system ffmpeg.
 datas += collect_data_files("imageio_ffmpeg")
@@ -95,6 +104,9 @@ _HEAVY_PACKAGES = (
     "nvidia",
     "nvidia.cublas",
     "nvidia.cudnn",
+    # Embedded LLM backend. Brings in the llama.cpp shared library that
+    # lives inside the wheel + its tokenizer / grammar files.
+    "llama_cpp",
 )
 _collected_hidden: list[str] = []
 for _pkg in _HEAVY_PACKAGES:
@@ -124,6 +136,7 @@ hiddenimports = _collected_hidden + [
     "app.services.pipeline",
     "app.providers.faster_whisper_provider",
     "app.providers.ollama_provider",
+    "app.providers.llama_cpp_provider",
     "app.security.network_isolation",
 ]
 

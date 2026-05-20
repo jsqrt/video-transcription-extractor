@@ -132,7 +132,12 @@ class _FakeLLMClient:
         return self.available
 
     def chat_json(
-        self, system_prompt: str, user_prompt: str, *, temperature: float = 0.2
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        temperature: float = 0.2,
+        response_schema: dict | None = None,
     ) -> dict:
         self.calls.append((system_prompt, user_prompt))
         # The synthesis call includes the full transcript as ground truth —

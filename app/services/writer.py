@@ -1,4 +1,4 @@
-"""Writes the human-readable ``<video>.clean.md`` file.
+"""Writes the human-readable ``<video>.transcription.md`` file.
 
 There are three ``clean_mode`` values:
 
@@ -83,13 +83,40 @@ def _utterances_to_paragraphs(transcript: Transcript) -> str:
     return _paragraphs_from_utterances(transcript.utterances)
 
 
+_SPEAKER_LABELS = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta"]
+
+
 def _paragraphs_from_utterances(utterances) -> str:
-    parts = [utt.text.strip() for utt in utterances if utt.text.strip()]
+    unique_speakers: list[str] = []
+    seen: set[str] = set()
+    for utt in utterances:
+        sp = getattr(utt, "speaker", None) or ""
+        if sp and sp != "UNKNOWN_SPEAKER" and sp not in seen:
+            seen.add(sp)
+            unique_speakers.append(sp)
+
+    speaker_map: dict[str, str] = {}
+    if len(unique_speakers) >= 2:
+        for i, sp in enumerate(unique_speakers):
+            label = _SPEAKER_LABELS[i] if i < len(_SPEAKER_LABELS) else f"Speaker {i + 1}"
+            speaker_map[sp] = label
+
+    parts = []
+    for utt in utterances:
+        text = utt.text.strip()
+        if not text:
+            continue
+        sp = getattr(utt, "speaker", None) or ""
+        label = speaker_map.get(sp, "")
+        if label:
+            parts.append(f"{label}: {text}")
+        else:
+            parts.append(text)
     return "\n\n".join(parts)
 
 
 class CleanTranscriptWriter:
-    """Persists a cleaned :class:`Transcript` as ``<stem>.clean.md``.
+    """Persists a cleaned :class:`Transcript` as ``<stem>.transcription.md``.
 
     Accepts a cleanup mode and delegates the actual cleanup to the
     :mod:`app.services.cleanup` module.
@@ -121,7 +148,7 @@ class CleanTranscriptWriter:
         )
         target_dir = output_dir if output_dir else source_video.parent
         target_dir.mkdir(parents=True, exist_ok=True)
-        output_path = target_dir / f"{source_video.stem}.clean.md"
+        output_path = target_dir / f"{source_video.stem}.transcription.md"
         output_path.write_text(
             transcript_to_clean_markdown(
                 cleaned,

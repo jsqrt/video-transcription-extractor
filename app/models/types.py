@@ -39,6 +39,7 @@ class TranscribeOptions:
     timeout_sec: int = 0  # 0 = disabled
     model_cache_dir: Optional[str] = None
     include_chapters: bool = True
+    diarize: bool = False
     summary: SummaryOptions = field(default_factory=SummaryOptions)
 
 

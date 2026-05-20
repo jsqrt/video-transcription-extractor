@@ -7,7 +7,7 @@ media file:
 
 Two artefacts are produced per video:
 
-* ``<stem>.clean.md``    — readable markdown after cleanup (if enabled).
+    * ``<stem>.transcription.md``    — readable markdown after cleanup (if enabled).
 * ``<stem>.summary.md``  — four-section summary (if enabled and summary is on).
 
 The cleaned transcript (same one that lands in ``.clean.md``) is what the
@@ -37,13 +37,14 @@ from app.services.writer import (
     build_chapters_for_transcript,
     refined_titles_from_summary,
 )
+from app.services.diarizer import diarize
 
 
 @dataclass(frozen=True)
 class PipelineResult:
     """Everything a caller (CLI / MCP / GUI / tests) typically wants to report."""
 
-    transcript_path: Optional[Path]  # <stem>.clean.md
+    transcript_path: Optional[Path]  # <stem>.transcription.md
     summary_path: Optional[Path]  # <stem>.summary.md
     duration_seconds: float
     chapter_count: int
@@ -122,8 +123,25 @@ def run_pipeline(
             cancel_event=cancel_event,
         )
 
-    if cancel_event is not None and cancel_event.is_set():
-        raise _cancelled()
+        # Optionally run diarization on the extracted wav while it still
+        # exists, and attach speaker labels to utterances after cleanup.
+        # Must run before the temp dir is torn down.
+        diarization_segments = None
+        if options.diarize:
+            if cancel_event is not None and cancel_event.is_set():
+                raise _cancelled()
+            try:
+                diarization_segments = diarize(str(wav_path))
+                logger(f"diarize: found {len(diarization_segments)} segments")
+            except Exception as exc:
+                logger(f"diarize: failed ({exc})")
+                diarization_segments = None
+
+        # Release the Whisper model from GPU immediately so Ollama can
+        # claim the VRAM for summarization inference. Defensive against
+        # provider/test doubles that don't implement the optional method.
+        if hasattr(transcriber, "release"):
+            transcriber.release()
 
     # Run cleanup exactly once. Both the clean.md file and the summarizer
     # must see the same post-cleanup transcript so chapter boundaries and
@@ -134,6 +152,38 @@ def run_pipeline(
         clean_mode=clean_mode,
         language=options.language,
     )
+
+    # If diarization happened, assign speaker labels to the cleaned utterances
+    if diarization_segments:
+        new_utts = []
+        for utt in cleaned_transcript.utterances:
+            start = utt.start_sec or 0.0
+            end = utt.end_sec or start
+            best_label = None
+            best_overlap = 0.0
+            for seg in diarization_segments:
+                s = seg.get("start", 0.0)
+                e = seg.get("end", 0.0)
+                overlap = max(0.0, min(end, e) - max(start, s))
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_label = seg.get("speaker")
+            if best_label is None:
+                speaker = ""
+            else:
+                # Normalize label to "Speaker N" if it looks generic
+                sp = str(best_label)
+                if sp.lower().startswith("speaker"):
+                    speaker = sp
+                else:
+                    # map arbitrary labels to Speaker 1..N by hashing
+                    speaker = sp
+            from app.models.types import Utterance
+
+            new_utts.append(
+                Utterance(speaker=speaker, text=utt.text, start_sec=utt.start_sec, end_sec=utt.end_sec)
+            )
+        cleaned_transcript = Transcript(utterances=tuple(new_utts))
 
     chapters = (
         build_chapters_for_transcript(cleaned_transcript, title_style=title_style)

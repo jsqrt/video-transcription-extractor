@@ -5,7 +5,7 @@ validation + response-shaping logic without pulling in the ``mcp`` SDK.
 
 The response exposes:
 
-* ``transcript_path``      — the ``<stem>.clean.md`` file.
+* ``transcript_path``      — the ``<stem>.transcription.md`` file.
 * ``summary_path``         — the ``<stem>.summary.md`` file.
 """
 
@@ -70,11 +70,12 @@ class TranscribeArguments:
     timeout_sec: int = 0
     clean_mode: CleanMode = "rule-based"
     write_clean: bool = True
+    diarize: bool = False
 
 
 @dataclass(frozen=True)
 class TranscribeResponse:
-    transcript_path: Optional[str]  # <stem>.clean.md
+    transcript_path: Optional[str]  # <stem>.transcription.md
     summary_path: Optional[str]
     duration_seconds: float
     chapter_count: int
@@ -210,6 +211,7 @@ class PipelineAdapter:
             language=args.language,
             timeout_sec=args.timeout_sec,
             include_chapters=bool(args.chapters),
+            diarize=bool(args.diarize),
             summary=summary_options,
         )
 

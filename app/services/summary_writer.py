@@ -170,7 +170,7 @@ class SummaryWriter:
                 chapters=chapters,
                 summary_result=summary_result,
             ),
-            encoding="utf-8",
+            encoding="utf-8-sig",  # BOM so Windows opens correctly
         )
         return output_path
 

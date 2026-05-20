@@ -107,7 +107,7 @@ class _ModePickerDialog(QDialog):
         layout.addWidget(header)
 
         self._btn_both = QRadioButton("Both — transcription and summary")
-        self._btn_trans = QRadioButton("Transcription only (.clean.md)")
+        self._btn_trans = QRadioButton("Transcription only (.transcription.md)")
         self._btn_summary = QRadioButton("Summary only (.summary.md)")
         layout.addWidget(self._btn_both)
         layout.addWidget(self._btn_trans)
@@ -170,12 +170,22 @@ class _JobRow:
         self.item.setText(2, label)
         if status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED):
             self.cancel_btn.setEnabled(False)
+            self.cancel_btn.setText("—")
+            # Restore determinate bar.
+            self.progress.setRange(0, 100)
             if status == JobStatus.DONE:
                 self.progress.setValue(100)
-            self.cancel_btn.setText("—")
 
     def set_progress(self, fraction: float) -> None:
+        # Restore determinate mode in case we were in busy state.
+        if self.progress.maximum() == 0:
+            self.progress.setRange(0, 100)
         self.progress.setValue(int(max(0.0, min(1.0, fraction)) * 100))
+
+    def set_busy(self, label: str) -> None:
+        """Switch to indeterminate (pulsing) progress and update status text."""
+        self.item.setText(2, label)
+        self.progress.setRange(0, 0)  # indeterminate mode
 
 
 class MainWindow(QMainWindow):
@@ -421,10 +431,20 @@ class MainWindow(QMainWindow):
             f"{self._file_name(job_id)}: {_STATUS_LABEL.get(status, status.value)}"
         )
 
-    def _on_job_log(self, _job_id: int, _message: str) -> None:
-        # Logs are stored in the worker's traceback path; UI keeps the status
-        # bar clean. Hook left here if a future log panel is added.
-        return
+    def _on_job_log(self, job_id: int, message: str) -> None:
+        row = self._rows.get(job_id)
+        if row is None:
+            return
+        if message.startswith("summarize:"):
+            row.set_busy("Summarizing…")
+            self._status.showMessage(f"Summarizing: {self._file_name(job_id)}")
+        elif message.startswith("cleanup:"):
+            row.set_busy("Cleaning up…")
+        elif message.startswith("transcribe:"):
+            row.set_status(JobStatus.PROCESSING)
+            self._status.showMessage(f"Transcribing: {self._file_name(job_id)}")
+        elif message.startswith("WARNING:"):
+            self._status.showMessage(f"⚠ {message[len('WARNING:'):].strip()}")
 
     def _on_queue_drained(self) -> None:
         if not self._rows:

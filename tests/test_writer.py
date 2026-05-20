@@ -104,7 +104,7 @@ class CleanTranscriptWriterTest(unittest.TestCase):
                 clean_mode="raw",
             )
 
-            self.assertEqual(out.name, "myclip.clean.md")
+            self.assertEqual(out.name, "myclip.transcription.md")
             content = out.read_text(encoding="utf-8")
             self.assertIn("hello world", content)
             self.assertIn("second line", content)

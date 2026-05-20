@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional, Protocol, Sequence
 
 from app.models.types import (
+    ModelNotFoundError,
     ProviderUnavailableError,
     SummarizationError,
     SummarizationTimeoutError,
@@ -296,7 +297,12 @@ class ExtractiveSummarizer:
 
 class _LLMClientProtocol(Protocol):
     def chat_json(
-        self, system_prompt: str, user_prompt: str, *, temperature: float = 0.2
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        temperature: float = 0.2,
+        response_schema: Optional[dict] = None,
     ) -> dict: ...
 
     def is_available(self) -> bool: ...
@@ -309,6 +315,25 @@ _SYSTEM_PROMPT = (
     "respond ONLY with valid JSON that matches the user's schema."
 )
 
+
+_CHAPTER_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "bullet": {"type": "string"},
+    },
+    "required": ["title", "bullet"],
+}
+
+_SYNTHESIS_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "overview": {"type": "string"},
+        "key_facts": {"type": "array", "items": {"type": "string"}},
+        "intents": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["overview", "key_facts", "intents"],
+}
 
 _CHAPTER_BULLET_PROMPT_TEMPLATE = (
     "{lang}"
@@ -375,7 +400,11 @@ class LLMStructuredSummarizer:
             max_words=self.title_max_words,
             text=chapter_text.strip(),
         )
-        data = self.client.chat_json(system_prompt=_SYSTEM_PROMPT, user_prompt=user)
+        data = self.client.chat_json(
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=user,
+            response_schema=_CHAPTER_JSON_SCHEMA,
+        )
         title = _normalize_title(
             str(data.get("title", "")).strip(), max_words=self.title_max_words
         )
@@ -414,7 +443,11 @@ class LLMStructuredSummarizer:
             chapter_block=chapter_block,
             full_text=full_text.strip(),
         )
-        data = self.client.chat_json(system_prompt=_SYSTEM_PROMPT, user_prompt=user)
+        data = self.client.chat_json(
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=user,
+            response_schema=_SYNTHESIS_JSON_SCHEMA,
+        )
         overview = str(data.get("overview", "")).strip()
         facts = _parse_fact_list(data.get("key_facts"))
         intents = _parse_intent_list(data.get("intents"))
@@ -553,6 +586,7 @@ class Summarizer:
                     language=language,
                 )
             except (
+                ModelNotFoundError,
                 ProviderUnavailableError,
                 SummarizationTimeoutError,
                 SummarizationError,
@@ -588,6 +622,7 @@ class Summarizer:
                     language=language,
                 )
             except (
+                ModelNotFoundError,
                 ProviderUnavailableError,
                 SummarizationTimeoutError,
                 SummarizationError,

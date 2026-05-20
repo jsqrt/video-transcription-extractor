@@ -28,6 +28,11 @@ from typing import Optional
 EMBEDDED_MODEL_NAME = "large-v3"
 EMBEDDED_MODEL_SUBDIR = Path("models") / EMBEDDED_MODEL_NAME
 
+# The summarization LLM lives at a stable on-disk name regardless of
+# which Qwen size was pre-seeded — see scripts/fetch_llm.py.
+EMBEDDED_LLM_FILENAME = "describely-summary.gguf"
+EMBEDDED_LLM_SUBDIR = Path("models") / "llm"
+
 
 def _candidate_roots() -> list[Path]:
     roots: list[Path] = []
@@ -77,6 +82,20 @@ def find_embedded_model_dir() -> Optional[Path]:
 
 def embedded_model_name() -> str:
     return EMBEDDED_MODEL_NAME
+
+
+def find_embedded_llm_path() -> Optional[Path]:
+    """Return the absolute path of the bundled summarization LLM, or None.
+
+    The runtime uses this with ``LlamaCppClient`` as a fallback when
+    Ollama is not running. Returns ``None`` if the file is missing
+    (development checkouts that never ran ``scripts/fetch_llm.py``).
+    """
+    for root in _candidate_roots():
+        candidate = root / EMBEDDED_LLM_SUBDIR / EMBEDDED_LLM_FILENAME
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def user_data_dir(app_name: str = "Describely") -> Path:

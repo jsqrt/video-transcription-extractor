@@ -53,26 +53,32 @@ and ship two DMGs over time (mark the Intel one "experimental").
 
 ---
 
-## 1. Pre-seed the embedded Whisper model (~3 GB, both hosts)
+## 1. Pre-seed the embedded models (~5 GB total, both hosts)
 
-The `large-v3` model lives next to the binary in every installer. It
-is fetched once per machine:
+Two models live next to the binary in every installer:
+
+* `models/large-v3/` — Whisper transcription model (~3 GB).
+* `models/llm/describely-summary.gguf` — Qwen 2.5-3B Instruct GGUF for
+  abstractive summarization (~2 GB).
+
+Fetch both, once per build machine:
 
 ```
-python scripts/fetch_model.py
+python scripts/fetch_model.py     # Whisper
+python scripts/fetch_llm.py       # Qwen 2.5-3B GGUF
 ```
 
-After it completes:
+After both complete:
+
 ```
-ls models/large-v3/
-# config.json  model.bin  preprocessor_config.json  tokenizer.json  vocabulary.txt  vocabulary.json
+ls models/large-v3/    # config.json, model.bin, tokenizer.json, vocabulary.json, ...
+ls models/llm/         # describely-summary.gguf
 ```
 
 The `models/` directory is gitignored — do not commit it.
 
-If you maintain multiple build machines and want to avoid downloading
-the model on each: zip the populated `models/large-v3/` once and
-distribute the archive internally.
+If you maintain multiple build machines and want to avoid the bandwidth:
+zip the populated `models/` directory once and distribute internally.
 
 ---
 

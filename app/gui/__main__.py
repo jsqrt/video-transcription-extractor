@@ -29,6 +29,7 @@ from app.gui.app_logger import install_global_logger, log
 from app.gui.first_run import ensure_terms_accepted
 from app.gui.macos_integration import install_quick_action
 from app.gui.main_window import MainWindow
+from app.gui.update_prompt import maybe_prompt_update
 from app.gui.worker import JobMode
 
 APP_NAME = "Describely"
@@ -202,6 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     open_filter.attach(window)
     log("MainWindow constructed; showing")
     window.show()
+
+    # Monthly update nag. No-ops on first ever launch (just seeds the
+    # timestamp) and on subsequent launches until 30 days have passed.
+    log("maybe_prompt_update()...")
+    maybe_prompt_update(parent=window, icon=app_icon)
+    log("maybe_prompt_update returned")
+
     log("entering Qt event loop")
     return app.exec()
 

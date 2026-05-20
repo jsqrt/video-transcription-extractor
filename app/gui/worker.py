@@ -8,7 +8,10 @@ queue (drain everything, set every pending job's status to ``cancelled``).
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import threading
+import time
 import traceback
 from dataclasses import dataclass, field
 from enum import Enum
@@ -40,8 +43,8 @@ class JobStatus(str, Enum):
 class JobMode(str, Enum):
     """What artifacts to produce for a single job."""
 
-    BOTH = "both"             # .clean.md + .summary.md
-    TRANSCRIPTION = "transcription"  # .clean.md only
+    BOTH = "both"             # .transcription.md + .summary.md
+    TRANSCRIPTION = "transcription"  # .transcription.md only
     SUMMARY = "summary"       # .summary.md only
 
 
@@ -95,20 +98,112 @@ class _PipelineServices:
         return self._extractor
 
     def summarizer(self, logger_fn) -> Summarizer:
-        # Ollama availability can change between files; re-probe each time
-        # so the user can start Ollama mid-queue and the rest benefits.
+        """Pick a backend for this run, in priority order:
+
+        1. **Ollama** at ``127.0.0.1:11434`` if reachable. The user
+           explicitly running an Ollama daemon means they chose their
+           model (usually larger / better than what we bundle), so we
+           defer to it.
+        2. **Bundled llama.cpp** with the GGUF shipped under
+           ``models/llm/``. Runs locally inside our process, no setup
+           required, but limited to the small Qwen we shipped.
+        3. **Extractive** — pure-Python sentence picker. Last resort
+           when neither LLM is available (e.g. dev checkout without
+           ``scripts/fetch_llm.py`` and no Ollama).
+
+        Re-probed every job so the user can start / stop Ollama
+        between files and the next one picks the new backend.
+        """
+        options = SummaryOptions(mode="ollama")
+
+        # 1) Ollama — probe server AND verify the model is actually installed
         from app.providers.ollama_provider import OllamaClient
 
-        options = SummaryOptions(mode="ollama")
-        client = OllamaClient(
+        probe = OllamaClient(
             base_url=options.ollama_base_url,
             model=options.ollama_model,
             timeout_sec=options.ollama_timeout_sec,
         )
-        llm_client = client if client.is_available() else None
-        if llm_client is None:
-            logger_fn("Ollama unreachable — using offline extractive summarizer.")
-        return Summarizer(options=options, llm_client=llm_client, logger_fn=logger_fn)
+        installed_models = probe.list_models()  # [] when server is down
+
+        if not installed_models:
+            # Try to auto-start Ollama if it's installed but not running.
+            ollama_exe = shutil.which("ollama")
+            if ollama_exe is None:
+                # Common Windows install location
+                candidate = Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe"
+                if candidate.is_file():
+                    ollama_exe = str(candidate)
+            if ollama_exe:
+                logger_fn("Ollama not running — starting it automatically…")
+                try:
+                    subprocess.Popen(
+                        [ollama_exe, "serve"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    # Wait up to 10 s for the server to become ready.
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        time.sleep(0.5)
+                        installed_models = probe.list_models()
+                        if installed_models:
+                            logger_fn("Ollama started successfully.")
+                            break
+                    else:
+                        logger_fn("Ollama did not respond in time; falling back.")
+                except OSError:
+                    pass
+
+        if installed_models:
+            # Pick the configured model if installed, else the first available one.
+            chosen_model = (
+                options.ollama_model
+                if options.ollama_model in installed_models
+                else installed_models[0]
+            )
+            ollama = OllamaClient(
+                base_url=options.ollama_base_url,
+                model=chosen_model,
+                timeout_sec=options.ollama_timeout_sec,
+            )
+            chosen_options = SummaryOptions(
+                mode="ollama",
+                ollama_base_url=options.ollama_base_url,
+                ollama_model=chosen_model,
+                ollama_timeout_sec=options.ollama_timeout_sec,
+            )
+            logger_fn(f"Summary backend: Ollama ({chosen_model}).")
+            return Summarizer(
+                options=chosen_options, llm_client=ollama, logger_fn=logger_fn
+            )
+
+        # 2) Bundled llama.cpp
+        from app.gui.model_manager import find_embedded_llm_path
+        from app.providers.llama_cpp_provider import LlamaCppClient
+
+        llm_path = find_embedded_llm_path()
+        if llm_path is not None:
+            client = LlamaCppClient(model_path=llm_path)
+            if client.is_available():
+                logger_fn(
+                    f"Summary backend: bundled LLM ({llm_path.name})."
+                )
+                return Summarizer(
+                    options=options, llm_client=client, logger_fn=logger_fn
+                )
+            logger_fn(
+                "Embedded LLM file present but llama-cpp-python is not "
+                "loadable; falling through to extractive."
+            )
+
+        # 3) Extractive
+        logger_fn(
+            "No LLM backend available — using offline extractive "
+            "summarizer (sentence picker, not abstractive)."
+        )
+        return Summarizer(options=options, llm_client=None, logger_fn=logger_fn)
 
     def clean_writer(self, logger_fn) -> CleanTranscriptWriter:
         if self._clean_writer is None:

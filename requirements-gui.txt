@@ -16,3 +16,18 @@ pyinstaller==6.15.0
 # in the bundle is safe even for CPU-only end users.
 nvidia-cublas-cu12>=12.0; sys_platform != "darwin" and platform_machine == "x86_64"
 nvidia-cudnn-cu12>=9.0;   sys_platform != "darwin" and platform_machine == "x86_64"
+# Embedded summarization LLM runtime. Loads the GGUF that lives at
+# models/llm/describely-summary.gguf (see scripts/fetch_llm.py). Without
+# this package the GUI silently falls back to the extractive
+# summarizer (sentence picker), so this dep is technically optional —
+# but every production bundle ships it.
+#
+# Installation notes for maintainers:
+#   * Default `pip install` may compile from source if no prebuilt
+#     wheel matches the host. The Windows build script already installs
+#     with ``--prefer-binary`` and the abetlen wheel index so MSVC is not
+#     required when a compatible wheel exists.
+#   * If you need CUDA acceleration on Windows / Linux x86_64, use the
+#     ``cu124`` wheel index instead of ``cpu`` when installing manually.
+#     On Apple Silicon the default wheel already enables Metal.
+llama-cpp-python>=0.3,<0.4

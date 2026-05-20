@@ -27,7 +27,7 @@ SERVER_NAME = "video-transcription-extractor"
 SERVER_INSTRUCTIONS = (
     "Transcribe local audio or video files with a Whisper + optional Ollama "
     "pipeline. The 'transcribe_media' tool returns on-disk paths to two "
-    "artefacts: transcript_path (<stem>.clean.md — cleaned, with chapters) "
+    "artefacts: transcript_path (<stem>.transcription.md — cleaned, with chapters) "
     "and summary_path (<stem>.summary.md — overview + key facts + intents "
     "+ per-chapter). Either can be disabled via write_clean=false or "
     "summary_mode='none'. Progress is reported via MCP progress "
@@ -58,7 +58,7 @@ def build_server(adapter: Optional[PipelineAdapter] = None):
         name="transcribe_media",
         description=(
             "Transcribe a local audio or video file. Produces up to two "
-            "files: <stem>.clean.md (cleaned with chapters) and "
+            "files: <stem>.transcription.md (cleaned with chapters) and "
             "<stem>.summary.md (when summary_mode is 'ollama' or "
             "'extractive'). file_path must be absolute and point to a "
             "supported format."

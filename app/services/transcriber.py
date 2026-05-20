@@ -71,6 +71,11 @@ class Transcriber:
         )
         return self._to_structured_transcript(raw_text)
 
+    def release(self) -> None:
+        """Free GPU memory held by the underlying provider (if supported)."""
+        if hasattr(self.provider, "release"):
+            self.provider.release()
+
     def _to_structured_transcript(self, text: str) -> Transcript:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         lines = self._trim_trailing_repeat_loop(lines)

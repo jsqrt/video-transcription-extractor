@@ -8,6 +8,10 @@ only need the resulting `.exe` (Windows) or `.dmg` (macOS).
 - Python 3.10+ (3.11 recommended).
 - `ffmpeg` on `PATH` (used on the build machine; the user bundle ships
   its own audio decoder via PyAV, so end users do not need ffmpeg).
+- On Windows: **Visual Studio Build Tools 2022** with the "Desktop
+  development with C++" workload, OR install `llama-cpp-python` from
+  prebuilt wheels (recommended, see below). Without one of these the
+  pip install of `llama-cpp-python` will fail.
 - A configured `.venv`:
   ```
   python -m venv .venv
@@ -38,19 +42,59 @@ no additional system Cairo / `cairosvg` install is needed. The icon
 generator falls back to skipping the step if Pillow is missing — the
 build still succeeds with the default Python icon.
 
-## One-time: pre-seed the embedded model
+### llama-cpp-python wheel choice
 
-The big `large-v3` (~3 GB) ships inside every installer. Pull it into
-`models/large-v3/` once before the first build:
+`pip install -r requirements-gui.txt` will try to install
+`llama-cpp-python`. By default pip compiles it from source, which on
+Windows requires Visual Studio Build Tools. Avoid that by pointing pip
+at the prebuilt wheel index for your platform:
 
 ```
-python scripts/fetch_model.py
+# CPU only (works everywhere)
+pip install llama-cpp-python --prefer-binary \
+    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+# CUDA 12 (Windows / Linux x86_64 with NVIDIA GPU)
+pip install llama-cpp-python --prefer-binary \
+    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+
+# Apple Silicon — default install picks Metal automatically
+pip install llama-cpp-python
+```
+
+Run the matching command BEFORE `pip install -r requirements-gui.txt`
+and the requirements file will see the package as already satisfied.
+
+End users do not need any of this — the wheel is bundled by PyInstaller
+along with its native `llama.dll` / `libllama.dylib`.
+
+## One-time: pre-seed the embedded models
+
+Two model files ship inside every installer:
+
+1. **Whisper `large-v3`** (~3 GB) — the transcription model.
+2. **Qwen 2.5-3B-Instruct GGUF** (~2 GB) — the abstractive summarization
+   model used when the user has no Ollama instance running.
+
+Pull both into `models/` once before the first build:
+
+```
+python scripts/fetch_model.py       # large-v3 → models/large-v3/
+python scripts/fetch_llm.py         # Qwen 2.5-3B → models/llm/describely-summary.gguf
+```
+
+For a smaller dev build, the LLM fetcher accepts `--size 1.5b` or
+`--size 0.5b`:
+
+```
+python scripts/fetch_llm.py --size 1.5b   # ~1 GB, weaker quality
 ```
 
 Verify:
 
 ```
 ls models/large-v3/      # model.bin, tokenizer.json, vocabulary.json, ...
+ls models/llm/           # describely-summary.gguf
 ```
 
 The `models/` directory is gitignored. Each maintainer fetches it
