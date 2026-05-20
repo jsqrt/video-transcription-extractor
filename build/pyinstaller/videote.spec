@@ -88,6 +88,24 @@ LLM_DIR = ROOT / "models" / "llm"
 if LLM_DIR.is_dir():
     datas.append((str(LLM_DIR), "models/llm"))
 
+# GGML Whisper model — needed by the whisper.cpp ASR path.
+#   * Always shipped on macOS (default ASR backend).
+#   * Shipped on Windows when the maintainer ran the build with
+#     VTE_WHISPER_VULKAN=1 (i.e. a Vulkan-enabled pywhispercpp wheel is
+#     present). Detected by importing the package and asking it for the
+#     compiled-in backend list — cheaper and more reliable than parsing
+#     an env var at build time.
+WHISPER_GGML_DIR = ROOT / "models" / "whisper-ggml"
+_ship_ggml = sys.platform == "darwin"
+if not _ship_ggml:
+    try:
+        import pywhispercpp  # noqa: F401
+        _ship_ggml = True
+    except Exception:
+        _ship_ggml = False
+if _ship_ggml and WHISPER_GGML_DIR.is_dir():
+    datas.append((str(WHISPER_GGML_DIR), "models/whisper-ggml"))
+
 # imageio_ffmpeg packages an ffmpeg binary inside the wheel — pull it
 # in as data so the GUI bundle does not depend on a system ffmpeg.
 datas += collect_data_files("imageio_ffmpeg")
@@ -119,6 +137,11 @@ _HEAVY_PACKAGES = (
     # Embedded LLM backend. Brings in the llama.cpp shared library that
     # lives inside the wheel + its tokenizer / grammar files.
     "llama_cpp",
+    # Whisper backend used on macOS (Metal). The package ships its own
+    # native ``libwhisper.dylib`` next to the Python module — collect_all
+    # pulls them in. On Windows / Linux pip skips installing this so the
+    # try/except below tolerates the missing import.
+    "pywhispercpp",
 )
 _collected_hidden: list[str] = []
 for _pkg in _HEAVY_PACKAGES:
@@ -144,9 +167,11 @@ hiddenimports = _collected_hidden + [
     "app.gui.first_run",
     "app.gui.app_logger",
     "app.gui.macos_integration",
+    "app.gui.update_prompt",
     "app.services",
     "app.services.pipeline",
     "app.providers.faster_whisper_provider",
+    "app.providers.whisper_cpp_provider",
     "app.providers.ollama_provider",
     "app.providers.llama_cpp_provider",
     "app.security.network_isolation",

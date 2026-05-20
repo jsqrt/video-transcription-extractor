@@ -42,19 +42,70 @@ no additional system Cairo / `cairosvg` install is needed. The icon
 generator falls back to skipping the step if Pillow is missing — the
 build still succeeds with the default Python icon.
 
+### Optional: AMD / Intel GPU Whisper on Windows (Vulkan)
+
+By default the Windows bundle uses faster-whisper, which means:
+
+* NVIDIA owners get CUDA acceleration.
+* AMD / Intel GPU owners get CPU.
+
+To enable GPU Whisper on AMD / Intel GPUs, compile `pywhispercpp` with
+Vulkan at build time. The build script handles this when
+`VTE_WHISPER_VULKAN=1` is set, and a runtime probe picks Vulkan
+whisper.cpp automatically on AMD/Intel hosts (NVIDIA hosts still get
+faster-whisper because CTranslate2 CUDA is ~10-15% faster).
+
+```powershell
+# One-time prerequisites:
+#   1. Install Vulkan SDK from https://vulkan.lunarg.com/ (sets VULKAN_SDK)
+#   2. Install CMake and add it to PATH
+#   3. Have MSVC Build Tools (already required for the rest of the build)
+
+$env:VTE_WHISPER_VULKAN = "1"
+python scripts/fetch_whisper_ggml.py        # pull the GGML model
+powershell -ExecutionPolicy Bypass -File build\windows\build.ps1
+```
+
+The build script will:
+
+1. Verify Vulkan SDK + CMake are present (warns and skips if missing).
+2. Reinstall pywhispercpp from source with `CMAKE_ARGS=-DGGML_VULKAN=ON`.
+3. PyInstaller spec detects the import and bundles the GGML model
+   under `models/whisper-ggml/` alongside the existing CT2 model.
+
+Verify after install: look at the user-side log for the line
+`ASR backend: whisper.cpp (Vulkan).` — that confirms the runtime
+selector picked the Vulkan path. If it instead says `faster-whisper`,
+either pywhispercpp didn't get bundled (rebuild) or an NVIDIA GPU is
+present and got chosen instead (the intended behaviour).
+
+End users do not need Vulkan SDK — the bundled wheel links against
+`vulkan-1.dll` which ships with every modern AMD / Intel / NVIDIA
+driver. Users without any GPU driver fall back to faster-whisper CPU.
+
 ### llama-cpp-python wheel choice
 
 `pip install -r requirements-gui.txt` will try to install
 `llama-cpp-python`. By default pip compiles it from source, which on
 Windows requires Visual Studio Build Tools. Avoid that by pointing pip
-at the prebuilt wheel index for your platform:
+at one of the prebuilt wheel indexes published at
+`https://abetlen.github.io/llama-cpp-python/whl/<backend>/`:
+
+| Backend  | GPU support                  | Notes                                                  |
+|----------|------------------------------|--------------------------------------------------------|
+| `vulkan` | **AMD + Intel + NVIDIA**     | **Shipping default on Windows.** ~10-15% slower than CUDA on NVIDIA but covers every GPU vendor. |
+| `cu124`  | NVIDIA only (CUDA 12.4)      | Fastest on NVIDIA, useless on AMD/Intel. Override `$env:VTE_LLAMA_WHEEL_INDEX=cu124` when shipping to NVIDIA-only customers. |
+| `cpu`    | none                         | Smallest bundle, slowest. Use when shipping to a customer who refuses GPU drivers. |
+| `metal`  | Apple Silicon (Metal)        | Set automatically by pip on Apple Silicon — no manual flag needed. |
+
+Manual install (skip if `build/windows/build.ps1` runs for you):
 
 ```
-# CPU only (works everywhere)
+# Windows shipping default (AMD/Intel/NVIDIA via Vulkan)
 pip install llama-cpp-python --prefer-binary \
-    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/vulkan
 
-# CUDA 12 (Windows / Linux x86_64 with NVIDIA GPU)
+# NVIDIA-only override
 pip install llama-cpp-python --prefer-binary \
     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
 
@@ -66,22 +117,37 @@ Run the matching command BEFORE `pip install -r requirements-gui.txt`
 and the requirements file will see the package as already satisfied.
 
 End users do not need any of this — the wheel is bundled by PyInstaller
-along with its native `llama.dll` / `libllama.dylib`.
+along with its native `llama.dll` / `libllama.dylib`. Vulkan's runtime
+loader (`vulkan-1.dll`) ships with every modern Windows GPU driver
+(NVIDIA, AMD, Intel) — if a user has no GPU driver at all,
+`llama-cpp-python` silently falls back to CPU and the extractive
+summarizer becomes the safety net.
 
 ## One-time: pre-seed the embedded models
 
-Two model files ship inside every installer:
+Up to three model files ship inside each installer, depending on
+host:
 
-1. **Whisper `large-v3`** (~3 GB) — the transcription model.
-2. **Qwen 2.5-3B-Instruct GGUF** (~2 GB) — the abstractive summarization
-   model used when the user has no Ollama instance running.
+1. **CTranslate2 Whisper `large-v3`** (~3 GB) — used by
+   `faster-whisper`. Shipped in Windows / Intel macOS bundles, and
+   kept as the CPU fallback on Apple Silicon.
+2. **GGML Whisper `large-v3`** (~3 GB) — used by `whisper.cpp` via
+   `pywhispercpp` for Metal-accelerated ASR. Apple Silicon **only**.
+3. **Qwen 2.5-3B-Instruct GGUF** (~2 GB) — the abstractive
+   summarization model used when the user has no Ollama instance
+   running. All platforms.
 
-Pull both into `models/` once before the first build:
+Fetch commands:
 
 ```
-python scripts/fetch_model.py       # large-v3 → models/large-v3/
-python scripts/fetch_llm.py         # Qwen 2.5-3B → models/llm/describely-summary.gguf
+python scripts/fetch_model.py            # CT2 large-v3 → models/large-v3/
+python scripts/fetch_llm.py              # Qwen → models/llm/describely-summary.gguf
+python scripts/fetch_whisper_ggml.py     # GGML large-v3 → models/whisper-ggml/  (macOS only)
 ```
+
+`scripts/fetch_whisper_ggml.py` is harmless on Windows / Intel hosts
+— the file will be present but the PyInstaller spec only bundles it
+on Darwin (see `WHISPER_GGML_DIR` in `videote.spec`).
 
 For a smaller dev build, the LLM fetcher accepts `--size 1.5b` or
 `--size 0.5b`:

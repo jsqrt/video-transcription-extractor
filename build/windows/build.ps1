@@ -81,10 +81,56 @@ Write-Host "==> Installing build dependencies"
 # Do NOT upgrade PyInstaller here — the requirements-gui.txt pins a
 # known-good version (bootloader CVEs in the past). Let the requirements
 # file decide.
-# Use prebuilt llama-cpp-python wheels whenever possible so Windows builds
-# do not require a local MSVC/nmake toolchain.
+#
+# llama-cpp-python wheel selection: use the **Vulkan** index so summary
+# generation can hit AMD, Intel, AND NVIDIA GPUs on Windows. Vulkan is
+# slightly slower than CUDA on NVIDIA (~10-15%) but covers every GPU
+# vendor in one wheel, which matches the project's "no compromises"
+# GPU posture. Users without Vulkan-capable drivers fall through to CPU
+# silently; the GPU-less extractive summarizer is still available as a
+# last resort.
+#
+# Override via $env:VTE_LLAMA_WHEEL_INDEX before invoking the script:
+#   cpu      — pure CPU, smallest bundle, no GPU acceleration
+#   vulkan   — cross-vendor GPU (default; recommended)
+#   cu124    — NVIDIA-only CUDA 12.4 (faster on NVIDIA, useless on AMD)
+$LlamaIndex = if ($env:VTE_LLAMA_WHEEL_INDEX) { $env:VTE_LLAMA_WHEEL_INDEX } else { "vulkan" }
+$LlamaIndexUrl = "https://abetlen.github.io/llama-cpp-python/whl/$LlamaIndex"
+Write-Host "==> llama-cpp-python wheel index: $LlamaIndexUrl"
 & $python -m pip install --upgrade pip
-& $python -m pip install --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -r (Join-Path $ProjectRoot "requirements-gui.txt")
+& $python -m pip install --prefer-binary --extra-index-url $LlamaIndexUrl -r (Join-Path $ProjectRoot "requirements-gui.txt")
+
+# Optional: compile pywhispercpp from source with Vulkan enabled so the
+# bundle can drive AMD / Intel / NVIDIA GPUs for transcription. The
+# default install (above) doesn't touch pywhispercpp on Windows
+# because the wheel is platform-gated to macOS. Set $env:VTE_WHISPER_VULKAN=1
+# to opt in. Requires:
+#   * Vulkan SDK (https://vulkan.lunarg.com/) installed; the build
+#     looks for the VULKAN_SDK env var.
+#   * CMake on PATH.
+#   * MSVC Build Tools (already required for the rest of the build).
+#
+# Without these, the build proceeds without GPU Whisper and the runtime
+# falls back to faster-whisper (CUDA on NVIDIA, CPU otherwise).
+if ($env:VTE_WHISPER_VULKAN -eq "1") {
+    if (-not $env:VULKAN_SDK) {
+        Write-Warning "VTE_WHISPER_VULKAN=1 set but VULKAN_SDK is not defined."
+        Write-Warning "Install the Vulkan SDK from https://vulkan.lunarg.com/ first."
+        Write-Warning "Skipping pywhispercpp Vulkan build."
+    } elseif (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+        Write-Warning "VTE_WHISPER_VULKAN=1 set but cmake is not on PATH."
+        Write-Warning "Skipping pywhispercpp Vulkan build."
+    } else {
+        Write-Host "==> Building pywhispercpp from source with Vulkan (CMAKE_ARGS=-DGGML_VULKAN=ON)"
+        Write-Host "==> Vulkan SDK: $env:VULKAN_SDK"
+        $env:CMAKE_ARGS = "-DGGML_VULKAN=ON"
+        & $python -m pip install --no-binary pywhispercpp --force-reinstall --no-cache-dir "pywhispercpp>=1.3,<2.0"
+        if ($LASTEXITCODE -ne 0) {
+            throw "pywhispercpp Vulkan build failed (exit $LASTEXITCODE). Inspect cmake's error output above."
+        }
+        Remove-Item Env:CMAKE_ARGS
+    }
+}
 
 $dist = Join-Path $ProjectRoot "dist"
 $buildDir = Join-Path $ProjectRoot "build\pyinstaller-work"

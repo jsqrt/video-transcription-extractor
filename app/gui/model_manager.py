@@ -33,6 +33,12 @@ EMBEDDED_MODEL_SUBDIR = Path("models") / EMBEDDED_MODEL_NAME
 EMBEDDED_LLM_FILENAME = "describely-summary.gguf"
 EMBEDDED_LLM_SUBDIR = Path("models") / "llm"
 
+# whisper.cpp / GGML variant of the Whisper model. Shipped on macOS so
+# Apple Silicon gets Metal acceleration that CTranslate2 cannot
+# provide. See scripts/fetch_whisper_ggml.py.
+EMBEDDED_WHISPER_GGML_FILENAME = "ggml-large-v3.bin"
+EMBEDDED_WHISPER_GGML_SUBDIR = Path("models") / "whisper-ggml"
+
 
 def _candidate_roots() -> list[Path]:
     roots: list[Path] = []
@@ -82,6 +88,20 @@ def find_embedded_model_dir() -> Optional[Path]:
 
 def embedded_model_name() -> str:
     return EMBEDDED_MODEL_NAME
+
+
+def find_embedded_whisper_ggml_path() -> Optional[Path]:
+    """Return the absolute path of the bundled GGML Whisper model.
+
+    Only present in macOS builds (or dev checkouts that have run
+    ``scripts/fetch_whisper_ggml.py``). Returns ``None`` if the file
+    is missing — caller falls back to FasterWhisperProvider.
+    """
+    for root in _candidate_roots():
+        candidate = root / EMBEDDED_WHISPER_GGML_SUBDIR / EMBEDDED_WHISPER_GGML_FILENAME
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def find_embedded_llm_path() -> Optional[Path]:

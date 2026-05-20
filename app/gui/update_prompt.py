@@ -27,10 +27,8 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 from app.gui.app_logger import log as _file_log
 from app.gui.model_manager import user_data_dir
 
-UPDATE_INTERVAL_DAYS = 30
-# TESTING: shortened to 1 minute for local QA. Revert to
-# ``timedelta(days=UPDATE_INTERVAL_DAYS)`` before cutting a release.
-UPDATE_INTERVAL = timedelta(minutes=1)
+UPDATE_INTERVAL_DAYS = 44
+UPDATE_INTERVAL = timedelta(days=UPDATE_INTERVAL_DAYS)
 UPDATE_URL = "https://describely.lovable.app/update"
 _STATE_FILENAME = "update-prompt.json"
 

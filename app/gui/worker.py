@@ -8,8 +8,10 @@ queue (drain everything, set every pending job's status to ``cancelled``).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -21,7 +23,11 @@ from typing import Optional
 from PySide6.QtCore import QObject, QThread, Signal
 
 from app.gui.app_logger import log as _file_log
-from app.gui.model_manager import embedded_model_name, find_embedded_model_path
+from app.gui.model_manager import (
+    embedded_model_name,
+    find_embedded_model_path,
+    find_embedded_whisper_ggml_path,
+)
 from app.models.types import SummaryOptions, TranscribeOptions
 from app.providers.faster_whisper_provider import FasterWhisperProvider
 from app.services.audio_extractor import AudioExtractor
@@ -67,11 +73,12 @@ class _PipelineServices:
     loaded only on the first job and cached afterwards.
 
     Constructed lazily on the worker thread because importing
-    faster-whisper can be slow.
+    faster-whisper / whisper.cpp can be slow.
     """
 
     def __init__(self) -> None:
-        self._provider: Optional[FasterWhisperProvider] = None
+        self._provider = None  # FasterWhisperProvider | WhisperCppProvider
+        self._provider_kind: Optional[str] = None  # "faster-whisper" | "whisper-cpp"
         self._transcriber: Optional[Transcriber] = None
         self._summary_writer: Optional[SummaryWriter] = None
         self._clean_writer: Optional[CleanTranscriptWriter] = None
@@ -79,11 +86,7 @@ class _PipelineServices:
 
     def transcriber(self, logger_fn) -> Transcriber:
         if self._transcriber is None:
-            # When the model is bundled we point the provider at the model
-            # directory directly; faster-whisper accepts an on-disk path
-            # in place of a short name, which skips HF cache resolution
-            # entirely.
-            self._provider = FasterWhisperProvider()
+            self._provider, self._provider_kind = self._build_provider(logger_fn)
             self._transcriber = Transcriber(
                 provider=self._provider, logger_fn=logger_fn
             )
@@ -91,6 +94,88 @@ class _PipelineServices:
             # Keep the latest job's logger so per-file warnings reach the UI.
             self._transcriber._logger = logger_fn  # noqa: SLF001
         return self._transcriber
+
+    def provider_kind(self) -> Optional[str]:
+        """Tell the caller which ASR backend got picked.
+
+        Used to route the correct model identifier into the transcriber
+        (CT2 directory vs GGML .bin file). ``None`` until the first
+        ``transcriber()`` call.
+        """
+        return self._provider_kind
+
+    def _build_provider(self, logger_fn):
+        """Pick an ASR backend based on platform + GPU vendor.
+
+        Default selection matrix:
+
+        ============  =============  =========================================
+        Platform      GPU vendor     Backend
+        ============  =============  =========================================
+        macOS (any)   —              whisper.cpp via pywhispercpp (Metal/Accel)
+        Windows       NVIDIA         faster-whisper (CUDA via CTranslate2)
+        Windows       AMD / Intel    whisper.cpp via pywhispercpp (Vulkan)
+        Windows       none           faster-whisper CPU
+        Linux         (same as Windows)
+        ============  =============  =========================================
+
+        Override via ``DESCRIBELY_ASR_BACKEND=whisper-cpp`` /
+        ``=faster-whisper`` for support cases. The Vulkan-enabled
+        pywhispercpp wheel is only present when the Windows build
+        script ran with ``VTE_WHISPER_VULKAN=1``; if it's missing,
+        AMD/Intel GPU users get CPU faster-whisper as a graceful
+        fallback.
+        """
+        override = (os.environ.get("DESCRIBELY_ASR_BACKEND") or "").strip().lower()
+
+        if override not in ("", "whisper-cpp", "faster-whisper"):
+            raise RuntimeError(
+                f"Unknown DESCRIBELY_ASR_BACKEND={override!r}. "
+                "Use 'whisper-cpp' or 'faster-whisper'."
+            )
+
+        prefer_whisper_cpp = self._prefer_whisper_cpp(override, logger_fn)
+
+        if prefer_whisper_cpp:
+            from app.providers.whisper_cpp_provider import (
+                WhisperCppProvider,
+                pywhispercpp_available,
+            )
+            if pywhispercpp_available():
+                backend_label = (
+                    "Metal/Accelerate" if sys.platform == "darwin" else "Vulkan"
+                )
+                logger_fn(f"ASR backend: whisper.cpp ({backend_label}).")
+                return WhisperCppProvider(), "whisper-cpp"
+            if override == "whisper-cpp":
+                raise RuntimeError(
+                    "DESCRIBELY_ASR_BACKEND=whisper-cpp but pywhispercpp "
+                    "is not importable. Install it or unset the override."
+                )
+            logger_fn(
+                "pywhispercpp unavailable in this build — falling back "
+                "to faster-whisper (CPU on non-NVIDIA hosts)."
+            )
+
+        logger_fn("ASR backend: faster-whisper.")
+        return FasterWhisperProvider(), "faster-whisper"
+
+    @staticmethod
+    def _prefer_whisper_cpp(override: str, logger_fn) -> bool:
+        if override == "whisper-cpp":
+            return True
+        if override == "faster-whisper":
+            return False
+        # Auto-select. macOS always wants whisper.cpp (Metal).
+        if sys.platform == "darwin":
+            return True
+        # Windows / Linux: only prefer whisper.cpp if there's no NVIDIA
+        # GPU. faster-whisper / CTranslate2 CUDA is the fastest path on
+        # NVIDIA, so we defer there even though whisper.cpp could run.
+        from app.gui.gpu_detect import has_nvidia_gpu
+        if has_nvidia_gpu():
+            return False
+        return True
 
     def extractor(self) -> AudioExtractor:
         if self._extractor is None:
@@ -361,15 +446,27 @@ class TranscriptionWorker(QObject):
                 include_chapters=True,
                 summary=SummaryOptions(mode=summary_backend),
             )
-            # Prefer the bundled flat-layout model dir when present; fall
-            # back to the short name "large-v3" only in dev mode without
-            # a populated models/ dir (which then errors loudly via the
-            # provider's local_files_only=True guard).
-            embedded_path = find_embedded_model_path()
-            model_identifier = (
-                str(embedded_path) if embedded_path is not None
-                else embedded_model_name()
-            )
+            # Construct the transcriber first so provider_kind is known,
+            # then pick the model identifier shape that backend expects:
+            # GGML .bin file for whisper.cpp, CT2 directory for
+            # faster-whisper.
+            transcriber = self._services.transcriber(_log)
+            if self._services.provider_kind() == "whisper-cpp":
+                ggml_path = find_embedded_whisper_ggml_path()
+                if ggml_path is None:
+                    raise RuntimeError(
+                        "macOS build expects models/whisper-ggml/"
+                        "ggml-large-v3.bin but it was not found. Run "
+                        "scripts/fetch_whisper_ggml.py before building."
+                    )
+                model_identifier = str(ggml_path)
+            else:
+                embedded_path = find_embedded_model_path()
+                model_identifier = (
+                    str(embedded_path) if embedded_path is not None
+                    else embedded_model_name()
+                )
+
             result = run_pipeline(
                 video_path=job.file_path,
                 options=options,
@@ -379,7 +476,7 @@ class TranscriptionWorker(QObject):
                 write_clean_file=write_clean,
                 write_summary_file=write_summary,
                 extractor=self._services.extractor(),
-                transcriber=self._services.transcriber(_log),
+                transcriber=transcriber,
                 summarizer=self._services.summarizer(_log),
                 clean_writer=self._services.clean_writer(_log),
                 summary_writer=self._services.summary_writer(),

@@ -18,6 +18,7 @@ extension is not installed.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any, Optional
@@ -27,6 +28,28 @@ from app.models.types import (
     ProviderUnavailableError,
     SummarizationError,
 )
+
+
+def _log_backend_info() -> str:
+    """Return a one-line description of which llama.cpp backend is active.
+
+    The Windows shipping bundle uses Vulkan wheels (AMD/Intel/NVIDIA),
+    macOS uses Metal, CPU is the fallback. We probe the installed
+    package's compiled-in capabilities so support tickets can confirm
+    the user's actual code path instead of guessing from the binary.
+    """
+    try:
+        from llama_cpp import llama_cpp as _lc_native  # noqa: WPS433
+    except Exception:
+        return "llama_cpp native module not importable"
+
+    flags: list[str] = []
+    for name in ("GGML_USE_VULKAN", "GGML_USE_CUDA", "GGML_USE_METAL", "GGML_USE_HIPBLAS"):
+        if getattr(_lc_native, name, None):
+            flags.append(name.removeprefix("GGML_USE_").lower())
+    if not flags:
+        flags.append("cpu")
+    return "llama.cpp backends compiled in: " + ", ".join(flags)
 
 
 class LlamaCppClient:
@@ -84,11 +107,22 @@ class LlamaCppClient:
                     "Re-run scripts/fetch_llm.py before launching the GUI."
                 )
 
+            # Honour a debug override that flips llama.cpp's own banner
+            # back on — useful when a support case needs to see exact
+            # backend / device selection lines.
+            verbose = os.environ.get("DESCRIBELY_LLAMA_VERBOSE") == "1"
+
+            try:
+                from app.gui.app_logger import log as _file_log
+                _file_log(_log_backend_info())
+            except Exception:
+                pass
+
             self._llama = Llama(
                 model_path=str(self._model_path),
                 n_ctx=self._n_ctx,
                 n_gpu_layers=self._n_gpu_layers,
-                verbose=False,
+                verbose=verbose,
                 # Disable mmap on Windows where some filesystems serve
                 # the GGUF from a path that mmap cannot fault on
                 # demand; the explicit read avoids first-token stalls.

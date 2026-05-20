@@ -9,6 +9,12 @@ imageio-ffmpeg>=0.5,<1.0
 # Pinned: PyInstaller bootloaders have had CVEs historically; keep
 # a known-good version and bump deliberately after reviewing the changelog.
 pyinstaller==6.15.0
+# whisper.cpp Python bindings — macOS only. Provides Metal-accelerated
+# Whisper on Apple Silicon (and Accelerate on Intel Mac). The prebuilt
+# wheels for Windows / Linux are CPU-only and weaker than faster-whisper,
+# so we don't pull them in there. See
+# app/providers/whisper_cpp_provider.py and scripts/fetch_whisper_ggml.py.
+pywhispercpp>=1.3,<2.0; sys_platform == "darwin"
 # CUDA runtime wheels — let CTranslate2 dispatch transcription to an
 # NVIDIA GPU when one is available. Skipped on macOS (no CUDA) and on
 # 32-bit / non-x86_64 hosts. CTranslate2 falls back to CPU silently if
@@ -24,10 +30,14 @@ nvidia-cudnn-cu12>=9.0;   sys_platform != "darwin" and platform_machine == "x86_
 #
 # Installation notes for maintainers:
 #   * Default `pip install` may compile from source if no prebuilt
-#     wheel matches the host. The Windows build script already installs
-#     with ``--prefer-binary`` and the abetlen wheel index so MSVC is not
-#     required when a compatible wheel exists.
-#   * If you need CUDA acceleration on Windows / Linux x86_64, use the
-#     ``cu124`` wheel index instead of ``cpu`` when installing manually.
-#     On Apple Silicon the default wheel already enables Metal.
+#     wheel matches the host. Use the abetlen prebuilt wheel indexes:
+#       https://abetlen.github.io/llama-cpp-python/whl/<backend>/
+#     with <backend> ∈ {cpu, vulkan, cu124, cu125, metal}.
+#   * Windows shipping builds use **vulkan** — cross-vendor GPU support
+#     (AMD/Intel/NVIDIA) in a single wheel. See build/windows/build.ps1.
+#     Override via $env:VTE_LLAMA_WHEEL_INDEX before the build.
+#   * macOS shipping builds use the default install path — pip picks a
+#     Metal-enabled wheel automatically on Apple Silicon.
+#   * NVIDIA-only Windows shops can override to ``cu124`` for ~10-15%
+#     faster summary generation at the cost of locking out AMD/Intel.
 llama-cpp-python>=0.3,<0.4
