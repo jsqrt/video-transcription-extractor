@@ -1,0 +1,27 @@
+{
+  "id": "english_doc",
+  "language": "en",
+  "transcript": "Welcome back to the show. Today we review the city council's new transport plan. The council approved a budget of 80 million dollars to expand the metro system. Two new lines will be built over the next four years, adding 18 stations. The plan also includes 200 electric buses replacing the old diesel fleet by 2027. Cycling infrastructure gets 12 million dollars, with 60 kilometers of new bike lanes. Mayor Jenkins said the goal is to cut traffic congestion by 30 percent. Critics argue the timeline is too optimistic and the funding falls short by at least 15 million. A public consultation will run for three months before final approval. Construction is expected to create 4500 jobs. The first new metro line should open in 2026. Thanks for watching, and don't forget to subscribe.",
+  "facts": [
+    ["80 million", "$80 million"],
+    ["metro", "two new lines", "2 new lines"],
+    ["four years", "4 years"],
+    ["18 stations"],
+    ["200 electric bus"],
+    ["2027"],
+    ["12 million", "cycling", "bike lane"],
+    ["60 kilomet", "60 km"],
+    ["Jenkins"],
+    ["30 percent", "congestion"],
+    ["15 million", "funding"],
+    ["three months", "3 months", "consultation"],
+    ["4500 job", "4,500 job"],
+    ["2026"]
+  ],
+  "absent": [
+    ["100 million"],
+    ["airport"],
+    ["Mayor Smith"],
+    ["subscribe"]
+  ]
+}

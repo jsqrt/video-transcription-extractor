@@ -1,0 +1,12 @@
+# Runtime deps (CPU-only works out of the box).
+httpx>=0.27,<1.0
+faster-whisper>=1.0,<2.0
+
+# HuggingFace tokenizers — used by app/services/tokenization.py to size
+# summarizer chunks by token count. Already a transitive faster-whisper
+# dep; pinned explicitly because we import it directly now.
+tokenizers>=0.15,<1.0
+
+# Optional — only needed to run the MCP server (``python -m mcp_server``).
+# The CLI and the rest of the project import fine without it.
+mcp>=1.0.0; python_version >= "3.10"

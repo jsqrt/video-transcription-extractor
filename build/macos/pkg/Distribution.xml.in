@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  productbuild distribution descriptor for Describely.
+  TEMPLATE: build/macos/build.sh substitutes @HOST_ARCHITECTURES@ at
+  build time based on $VTE_MAC_ARCH. Do not edit the generated file
+  in-place; edit this .in template instead.
+
+  Defines the installer wizard pages (Welcome → License → Install →
+  Conclusion) and references the component .pkg produced by pkgbuild
+  in the parent build script.
+-->
+<installer-gui-script minSpecVersion="2">
+    <title>Describely</title>
+
+    <!-- Restrict installation to the architecture the .app was built
+         for. A user on Apple Silicon downloading the x86_64 .pkg by
+         mistake gets a clean error from the installer wizard instead
+         of a silently-Rosetta'd build with degraded perf. Substituted
+         by build.sh — see VTE_MAC_ARCH in that script. -->
+    <options hostArchitectures="@HOST_ARCHITECTURES@"/>
+
+    <!-- Path to user-visible documents shown at each wizard step.
+         Files are placed under the resources/ dir passed to productbuild. -->
+    <welcome  file="welcome.html"     mime-type="text/html"/>
+    <license  file="license.txt"      mime-type="text/plain"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+
+    <!-- macOS 12+. Older Mac builds of CTranslate2 wheels are not
+         guaranteed to load on Big Sur. -->
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="12.0"/>
+        </allowed-os-versions>
+    </volume-check>
+
+    <!-- Reference the component pkg (built first by pkgbuild). The
+         attribute name must match the file under packages/. -->
+    <pkg-ref id="com.describely.app"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.describely.app"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="com.describely.app" visible="false">
+        <pkg-ref id="com.describely.app"/>
+    </choice>
+
+    <pkg-ref id="com.describely.app"
+             version="1.0.0"
+             auth="root">Describely-component.pkg</pkg-ref>
+</installer-gui-script>

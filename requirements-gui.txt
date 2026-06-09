@@ -1,0 +1,43 @@
+# Extra deps for the desktop GUI (``python -m app.gui``).
+# Install with:
+#     python -m pip install -r requirements.txt -r requirements-gui.txt
+-r requirements.txt
+PySide6>=6.6,<7.0
+# Ships ffmpeg binaries inside the Python wheel so the PyInstaller bundle
+# does not depend on a system-installed ffmpeg. ~60 MB per platform.
+imageio-ffmpeg>=0.5,<1.0
+# Pinned: PyInstaller bootloaders have had CVEs historically; keep
+# a known-good version and bump deliberately after reviewing the changelog.
+pyinstaller==6.15.0
+# whisper.cpp Python bindings — macOS only. Provides Metal-accelerated
+# Whisper on Apple Silicon (and Accelerate on Intel Mac). The prebuilt
+# wheels for Windows / Linux are CPU-only and weaker than faster-whisper,
+# so we don't pull them in there. See
+# app/providers/whisper_cpp_provider.py and scripts/fetch_whisper_ggml.py.
+pywhispercpp>=1.3,<2.0; sys_platform == "darwin"
+# CUDA runtime wheels — let CTranslate2 dispatch transcription to an
+# NVIDIA GPU when one is available. Skipped on macOS (no CUDA) and on
+# 32-bit / non-x86_64 hosts. CTranslate2 falls back to CPU silently if
+# the wheels are not loadable on the user's machine, so shipping them
+# in the bundle is safe even for CPU-only end users.
+nvidia-cublas-cu12>=12.0; sys_platform != "darwin" and platform_machine == "x86_64"
+nvidia-cudnn-cu12>=9.0;   sys_platform != "darwin" and platform_machine == "x86_64"
+# Embedded summarization LLM runtime. Loads the GGUF that lives at
+# models/llm/describely-summary.gguf (see scripts/fetch_llm.py). Without
+# this package the GUI silently falls back to the extractive
+# summarizer (sentence picker), so this dep is technically optional —
+# but every production bundle ships it.
+#
+# Installation notes for maintainers:
+#   * Default `pip install` may compile from source if no prebuilt
+#     wheel matches the host. Use the abetlen prebuilt wheel indexes:
+#       https://abetlen.github.io/llama-cpp-python/whl/<backend>/
+#     with <backend> ∈ {cpu, vulkan, cu124, cu125, metal}.
+#   * Windows shipping builds use **vulkan** — cross-vendor GPU support
+#     (AMD/Intel/NVIDIA) in a single wheel. See build/windows/build.ps1.
+#     Override via $env:VTE_LLAMA_WHEEL_INDEX before the build.
+#   * macOS shipping builds use the default install path — pip picks a
+#     Metal-enabled wheel automatically on Apple Silicon.
+#   * NVIDIA-only Windows shops can override to ``cu124`` for ~10-15%
+#     faster summary generation at the cost of locking out AMD/Intel.
+llama-cpp-python>=0.3,<0.4

@@ -1,0 +1,28 @@
+video-sample
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+dist*/
+.DS_Store
+.idea/
+.vscode/
+
+# Bundled Whisper model (huge; populate via scripts/fetch_model.py).
+models/
+
+# PyInstaller intermediate output.
+build/pyinstaller-work/
+
+# Installer outputs.
+build/windows/out/
+build/macos/out/
+
+*.mp4
+# Generated at build time by the PyInstaller spec
+app/_build_info.py

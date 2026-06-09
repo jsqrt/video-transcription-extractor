@@ -1,0 +1,6 @@
+# Extra deps to enable CUDA acceleration on Windows/Linux with an NVIDIA GPU.
+# Install with:
+#     python -m pip install -r requirements.txt -r requirements-gpu.txt
+-r requirements.txt
+nvidia-cublas-cu12>=12.0
+nvidia-cudnn-cu12>=9.0
